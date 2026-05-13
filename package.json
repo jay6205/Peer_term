@@ -8,6 +8,7 @@
     "host"
   ],
   "scripts": {
+    "start": "npm run relay",
     "relay": "cd relay && npm start",
     "relay:dev": "cd relay && npm run dev",
     "host": "cd host && npm start"

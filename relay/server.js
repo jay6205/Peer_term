@@ -460,7 +460,7 @@ wss.on('connection', (ws, req) => {
 
 // ─── Start Server ────────────────────────────────────────────────────────────
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  ╔═══════════════════════════════════════════╗');
   console.log('  ║                                           ║');
