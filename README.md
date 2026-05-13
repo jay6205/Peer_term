@@ -127,8 +127,7 @@ fly deploy
 ### Docker
 
 ```bash
-cd relay
-docker build -t peerterm-relay .
+docker build -f relay/Dockerfile -t peerterm-relay .
 docker run -p 8080:8080 peerterm-relay
 ```
 

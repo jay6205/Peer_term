@@ -153,8 +153,51 @@ const server = http.createServer((req, res) => {
     const clientPath = path.join(__dirname, '..', 'client', 'index.html');
     fs.readFile(clientPath, (err, data) => {
       if (err) {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Client not found. Make sure client/index.html exists.');
+        // Client not bundled — serve a minimal landing page
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PeerTerm Relay</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #0a0a0f; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    .card {
+      text-align: center; padding: 3rem; border-radius: 16px;
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+      max-width: 480px;
+    }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; color: #fff; }
+    .badge {
+      display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem;
+      background: #22c55e22; color: #22c55e; border: 1px solid #22c55e44; margin-bottom: 1.5rem;
+    }
+    p { color: #888; line-height: 1.6; margin-bottom: 1rem; }
+    code {
+      background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 4px;
+      font-size: 0.9rem; color: #a78bfa;
+    }
+    a { color: #60a5fa; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>⚡ PeerTerm</h1>
+    <span class="badge">● Relay Online</span>
+    <p>This relay server is running and accepting connections.</p>
+    <p>Connect your host agent with:<br><code>--relay ${req.headers.host ? (req.connection.encrypted ? 'wss' : 'ws') + '://' + req.headers.host : 'this server'}</code></p>
+    <p style="margin-top:1.5rem; font-size:0.85rem;">
+      <a href="/health">Health Check</a>
+    </p>
+  </div>
+</body>
+</html>`);
         return;
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
