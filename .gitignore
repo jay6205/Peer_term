@@ -43,3 +43,7 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Binary build output
+host/dist/
+dist/

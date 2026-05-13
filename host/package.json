@@ -1,14 +1,45 @@
 {
-  "name": "peer-term-host",
+  "name": "peer-term",
   "version": "1.0.0",
-  "description": "PeerTerm host CLI agent — spawns PTY, encrypts I/O",
-  "main": "index.js",
+  "description": "Share your terminal instantly using a 6-digit code. Encrypted. No config.",
+  "main": "src/index.js",
+  "bin": {
+    "peer-term": "./bin/peer-term.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node src/index.js",
+    "build": "npx @yao-pkg/pkg . --compress GZip",
+    "build:linux-x64": "npx @yao-pkg/pkg . --targets node18-linux-x64 --output dist/peer-term-linux-x64",
+    "build:linux-arm64": "npx @yao-pkg/pkg . --targets node18-linux-arm64 --output dist/peer-term-linux-arm64",
+    "build:macos-x64": "npx @yao-pkg/pkg . --targets node18-macos-x64 --output dist/peer-term-macos-x64",
+    "build:macos-arm64": "npx @yao-pkg/pkg . --targets node18-macos-arm64 --output dist/peer-term-macos-arm64",
+    "build:win": "npx @yao-pkg/pkg . --targets node18-win-x64 --output dist/peer-term-win-x64.exe",
+    "postinstall": "node src/check-deps.js"
+  },
+  "pkg": {
+    "scripts": "src/**/*.js",
+    "assets": [],
+    "targets": [
+      "node18-linux-x64",
+      "node18-linux-arm64",
+      "node18-macos-x64",
+      "node18-macos-arm64",
+      "node18-win-x64"
+    ],
+    "outputPath": "dist/"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
+    "minimist": "^1.2.8",
     "node-datachannel": "^0.32.3",
     "node-pty": "^1.0.0",
     "ws": "^8.18.0"

@@ -679,8 +679,11 @@
     let iceTimer = null;
     let dcTimer = null;
 
-    // ─── Relay URL (derived from page origin since relay serves this file) ─
+    // ─── Relay URL (query param override or derived from page origin) ──────
     const RELAY_URL = (() => {
+      const params = new URLSearchParams(window.location.search);
+      const custom = params.get('relay');
+      if (custom) return custom;
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       return `${proto}//${location.host}`;
     })();

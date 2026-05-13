@@ -1,0 +1,27 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: cd host && npm ci
+
+      - name: Build binaries
+        run: cd host && npm run build
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: host/dist/*

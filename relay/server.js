@@ -166,7 +166,7 @@ const server = http.createServer((req, res) => {
   // Health check endpoint
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', activeSessions: sessions.size }));
+    res.end(JSON.stringify({ status: 'ok', sessions: sessions.size }));
     return;
   }
 
@@ -428,3 +428,46 @@ server.listen(PORT, () => {
   console.log('  ╚═══════════════════════════════════════════╝');
   console.log('');
 });
+
+// ─── Graceful Shutdown ───────────────────────────────────────────────────────
+
+function gracefulShutdown(signal) {
+  console.log(`\n[server] Received ${signal}. Shutting down gracefully...`);
+
+  // Notify all connected clients and hosts
+  for (const [code, session] of sessions) {
+    try {
+      if (session.hostSocket && session.hostSocket.readyState === 1) {
+        session.hostSocket.send(JSON.stringify({ type: 'session-expired' }));
+        session.hostSocket.close();
+      }
+      if (session.clientSocket && session.clientSocket.readyState === 1) {
+        session.clientSocket.send(JSON.stringify({ type: 'session-ended' }));
+        session.clientSocket.close();
+      }
+    } catch {}
+    sessions.delete(code);
+  }
+
+  // Close WebSocket server
+  wss.close(() => {
+    console.log('[server] WebSocket server closed.');
+
+    // Close HTTP server
+    server.close(() => {
+      console.log('[server] HTTP server closed.');
+      console.log('[server] Goodbye.');
+      process.exit(0);
+    });
+  });
+
+  // Force exit after 5 seconds if graceful shutdown stalls
+  setTimeout(() => {
+    console.error('[server] Forced shutdown after timeout.');
+    process.exit(1);
+  }, 5000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
