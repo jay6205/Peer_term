@@ -16,7 +16,7 @@ WORKDIR /app
 # Copy only package files first for layer caching
 # Dependencies won't reinstall unless package files change
 COPY relay/package.json relay/package-lock.json* ./
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --omit=dev && npm cache clean --force
 
 # ─── Stage 2: Production image ──────────────────────────────────────────────
 FROM node:18-alpine

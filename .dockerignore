@@ -35,12 +35,12 @@ Thumbs.db
 .idea
 *.sw?
 
-# ─── Host agent (not needed for relay image) ─────────────────────────────────
-host/bin
-host/src
-host/crypto.js
-host/webrtc.js
-host/index.js
+# ─── Host agent (not needed for relay image but required for Railpack npm ci) ──
+# host/bin
+# host/src
+# host/crypto.js
+# host/webrtc.js
+# host/index.js
 host/.env
 host/.env.example
-host/package-lock.json
+# host/package-lock.json
