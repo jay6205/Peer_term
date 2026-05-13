@@ -1,0 +1,17 @@
+{
+  "name": "peer-term",
+  "version": "1.0.0",
+  "description": "Share your terminal with anyone using a 6-digit code. End-to-end encrypted.",
+  "private": true,
+  "workspaces": [
+    "relay",
+    "host"
+  ],
+  "scripts": {
+    "relay": "cd relay && npm start",
+    "relay:dev": "cd relay && npm run dev",
+    "host": "cd host && npm start"
+  },
+  "author": "",
+  "license": "MIT"
+}

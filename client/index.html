@@ -1,0 +1,1723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PeerTerm — Instant Terminal Sharing</title>
+  <meta name="description" content="Share your terminal with anyone using a 6-digit code. End-to-end encrypted, no installation required.">
+
+  <!-- xterm.js from CDN -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    /* ─── Reset & Base ──────────────────────────────────────────────────── */
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-secondary: #111827;
+      --bg-card: #1a2234;
+      --bg-card-hover: #1f2a3f;
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-accent: rgba(56, 189, 248, 0.2);
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent: #38bdf8;
+      --accent-dim: rgba(56, 189, 248, 0.1);
+      --accent-glow: rgba(56, 189, 248, 0.15);
+      --success: #34d399;
+      --warning: #fbbf24;
+      --error: #f87171;
+      --terminal-bg: #0c1018;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Connect Screen ───────────────────────────────────────────────── */
+    #connect-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      position: relative;
+      z-index: 10;
+    }
+
+    /* Subtle grid background */
+    #connect-screen::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+      background-size: 60px 60px;
+      z-index: -1;
+    }
+
+    /* Top-center gradient glow */
+    #connect-screen::after {
+      content: '';
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 500px;
+      background: radial-gradient(ellipse, rgba(56, 189, 248, 0.06) 0%, transparent 70%);
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), #0ea5e9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+    }
+
+    .brand h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: var(--text-primary);
+    }
+
+    .brand-subtitle {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-bottom: 40px;
+      font-weight: 400;
+    }
+
+    /* ─── Card ──────────────────────────────────────────────────────────── */
+    .connect-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 40px;
+      width: 100%;
+      max-width: 420px;
+      box-shadow:
+        0 4px 24px rgba(0, 0, 0, 0.3),
+        0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text-primary);
+    }
+
+    .card-description {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
+
+    /* ─── Code Input ────────────────────────────────────────────────────── */
+    .input-group {
+      margin-bottom: 20px;
+    }
+
+    .input-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    #code-input {
+      width: 100%;
+      padding: 14px 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px;
+      font-weight: 500;
+      letter-spacing: 8px;
+      text-align: center;
+      background: var(--bg-primary);
+      border: 1.5px solid var(--border-subtle);
+      border-radius: 10px;
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      caret-color: var(--accent);
+    }
+
+    #code-input::placeholder {
+      color: var(--text-muted);
+      letter-spacing: 6px;
+      font-size: 18px;
+    }
+
+    #code-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    /* ─── Connect Button ────────────────────────────────────────────────── */
+    #connect-btn {
+      width: 100%;
+      padding: 13px 24px;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      background: var(--accent);
+      color: #0a0e17;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    #connect-btn:hover:not(:disabled) {
+      background: #5fc8f5;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(56, 189, 248, 0.3);
+    }
+
+    #connect-btn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    #connect-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-spinner {
+      display: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(10, 14, 23, 0.3);
+      border-top-color: #0a0e17;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    #connect-btn.loading .btn-spinner {
+      display: block;
+    }
+
+    #connect-btn.loading .btn-text {
+      display: none;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* ─── Error Message ─────────────────────────────────────────────────── */
+    #error-msg {
+      display: none;
+      margin-top: 16px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--error);
+      background: rgba(248, 113, 113, 0.08);
+      border: 1px solid rgba(248, 113, 113, 0.15);
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    #error-msg.visible {
+      display: block;
+      animation: shake 0.3s ease-in-out;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-4px); }
+      75% { transform: translateX(4px); }
+    }
+
+    /* ─── Security Badge ────────────────────────────────────────────────── */
+    .security-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 24px;
+      padding: 8px 14px;
+      background: rgba(52, 211, 153, 0.06);
+      border: 1px solid rgba(52, 211, 153, 0.1);
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--success);
+    }
+
+    .security-badge svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    /* ─── Footer ────────────────────────────────────────────────────────── */
+    .connect-footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* ─── Terminal Screen ───────────────────────────────────────────────── */
+    #terminal-screen {
+      display: none;
+      flex-direction: column;
+      height: 100vh;
+      background: var(--terminal-bg);
+    }
+
+    #terminal-screen.active {
+      display: flex;
+    }
+
+    /* ─── Status Bar ────────────────────────────────────────────────────── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
+    .status-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-brand {
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-brand .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 6px rgba(52, 211, 153, 0.5);
+    }
+
+    .status-divider {
+      width: 1px;
+      height: 14px;
+      background: var(--border-subtle);
+    }
+
+    .status-session {
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+
+    .status-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-secondary);
+    }
+
+    .status-right svg {
+      width: 12px;
+      height: 12px;
+      color: var(--success);
+    }
+
+    /* terminal-container styles are in the Phase 3 section below */
+
+    /* ─── Connecting overlay ─────────────────────────────────────────────── */
+    #connecting-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 14, 23, 0.85);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    #connecting-overlay.visible {
+      display: flex;
+    }
+
+    .connecting-spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--border-subtle);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .connecting-text {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    /* ─── Animations ────────────────────────────────────────────────────── */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .connect-card {
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    /* ─── Connection Indicator ──────────────────────────────────────────── */
+    #connection-indicator {
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 6px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* ─── View Only Badge ──────────────────────────────────────────────── */
+    #readonly-badge {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--warning);
+      background: rgba(251, 191, 36, 0.1);
+      border: 1px solid rgba(251, 191, 36, 0.2);
+      border-radius: 4px;
+    }
+    #readonly-badge.visible { display: flex; }
+
+    /* ─── Clipboard Buttons ────────────────────────────────────────────── */
+    #copy-btn {
+      display: none;
+      position: fixed;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-card);
+      color: var(--text-primary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      cursor: pointer;
+      z-index: 50;
+      transition: background 0.15s;
+    }
+    #copy-btn:hover { background: var(--bg-card-hover); }
+    #copy-btn.visible { display: block; }
+    #copy-btn.copied {
+      color: var(--success);
+      border-color: rgba(52, 211, 153, 0.3);
+    }
+
+    .toolbar-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .toolbar-btn:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
+    .toolbar-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ─── Mobile Controls ──────────────────────────────────────────────── */
+    .mobile-controls {
+      display: none;
+      gap: 6px;
+      align-items: center;
+    }
+    @media (pointer: coarse) {
+      .mobile-controls { display: flex; }
+    }
+
+    #mobile-input {
+      position: fixed;
+      top: -100px;
+      left: -100px;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      z-index: -1;
+    }
+
+    /* ─── Terminal Container ─────────── */
+    #terminal-container {
+      flex: 1;
+      padding: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* ─── Clipboard Error Toast ────────────────────────────────────────── */
+    #clipboard-toast {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--warning);
+      background: var(--bg-card);
+      border: 1px solid rgba(251, 191, 36, 0.2);
+      border-radius: 8px;
+      z-index: 60;
+      animation: fadeIn 0.2s ease-out;
+    }
+    #clipboard-toast.visible { display: block; }
+  </style>
+</head>
+
+<body>
+
+  <!-- ═══ Connect Screen ═══════════════════════════════════════════════════ -->
+  <div id="connect-screen">
+    <div class="brand">
+      <div class="brand-icon">⬡</div>
+      <h1>PeerTerm</h1>
+    </div>
+    <p class="brand-subtitle">Instant terminal sharing, end-to-end encrypted</p>
+
+    <div class="connect-card">
+      <h2 class="card-title">Join a session</h2>
+      <p class="card-description">Enter the 6-digit code shared by the host to connect to their terminal.</p>
+
+      <div class="input-group">
+        <label class="input-label" for="code-input">Session Code</label>
+        <input
+          id="code-input"
+          type="text"
+          inputmode="numeric"
+          maxlength="6"
+          placeholder="000000"
+          autocomplete="off"
+          autofocus
+        >
+      </div>
+
+      <button id="connect-btn" type="button">
+        <span class="btn-text">Connect</span>
+        <div class="btn-spinner"></div>
+      </button>
+
+      <div id="error-msg"></div>
+
+      <div class="security-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0110 0v4"/>
+        </svg>
+        <span>End-to-end encrypted — the relay server cannot read your data</span>
+      </div>
+    </div>
+
+    <p class="connect-footer">Open source · No installation required</p>
+  </div>
+
+  <!-- ═══ Connecting Overlay ═══════════════════════════════════════════════ -->
+  <div id="connecting-overlay">
+    <div class="connecting-spinner"></div>
+    <div class="connecting-text">Establishing encrypted connection...</div>
+  </div>
+
+  <!-- ═══ Terminal Screen ══════════════════════════════════════════════════ -->
+  <div id="terminal-screen">
+    <div class="status-bar">
+      <div class="status-left">
+        <div class="status-brand">
+          <span class="dot"></span>
+          PeerTerm
+        </div>
+        <div class="status-divider"></div>
+        <span class="status-session" id="status-code"></span>
+        <span id="readonly-badge">&#128065; View Only</span>
+      </div>
+      <div class="status-right">
+        <!-- Paste button -->
+        <button id="paste-btn" class="toolbar-btn" title="Paste (Ctrl+Shift+V)">Paste</button>
+        <div class="status-divider"></div>
+        <!-- Mobile controls -->
+        <div class="mobile-controls">
+          <button id="kbd-toggle-btn" class="toolbar-btn" title="Toggle keyboard">&#9000;&#65039;</button>
+          <button id="font-down-btn" class="toolbar-btn" title="Smaller font">A-</button>
+          <button id="font-up-btn" class="toolbar-btn" title="Larger font">A+</button>
+          <div class="status-divider"></div>
+        </div>
+        <div id="connection-indicator">&#9203; Connecting...</div>
+        <div class="status-divider"></div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0110 0v4"/>
+        </svg>
+        <span>Encrypted</span>
+      </div>
+    </div>
+    <div id="terminal-container">
+    </div>
+  </div>
+
+  <!-- Hidden mobile input -->
+  <input id="mobile-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+  <!-- Floating copy button -->
+  <button id="copy-btn">Copy</button>
+
+  <!-- Clipboard toast -->
+  <div id="clipboard-toast"></div>
+
+  <!-- ═══ JavaScript ═══════════════════════════════════════════════════════ -->
+  <script>
+    // ─── DOM Elements ──────────────────────────────────────────────────────
+    const connectScreen   = document.getElementById('connect-screen');
+    const terminalScreen  = document.getElementById('terminal-screen');
+    const codeInput       = document.getElementById('code-input');
+    const connectBtn      = document.getElementById('connect-btn');
+    const errorMsg        = document.getElementById('error-msg');
+    const connectingOvl   = document.getElementById('connecting-overlay');
+    const statusCode      = document.getElementById('status-code');
+    const terminalEl      = document.getElementById('terminal-container');
+    const connIndicator   = document.getElementById('connection-indicator');
+    const readonlyBadge   = document.getElementById('readonly-badge');
+    const pasteBtn        = document.getElementById('paste-btn');
+    const copyBtn         = document.getElementById('copy-btn');
+    const clipToast       = document.getElementById('clipboard-toast');
+    const mobileInput     = document.getElementById('mobile-input');
+    const kbdToggleBtn    = document.getElementById('kbd-toggle-btn');
+    const fontDownBtn     = document.getElementById('font-down-btn');
+    const fontUpBtn       = document.getElementById('font-up-btn');
+
+    // ─── State ─────────────────────────────────────────────────────────────
+    let ws          = null;
+    let terminal    = null;
+    let fitAddon    = null;
+    let keyPair     = null;
+    let sharedKey   = null;
+    let sessionCode = '';
+
+    // Phase 2: Heartbeat & Reconnect state
+    let heartbeatInterval = null;
+    let missedPings = 0;
+    let reconnectInterval = null;
+    let isReconnecting = false;
+    let sessionEnded = false;
+    const HEARTBEAT_MS = 5000;
+    const MAX_MISSED = 2;
+    const RECONNECT_MS = 5000;
+
+    // Phase 3: Feature state
+    let isReadOnly = false;
+    let currentFontSize = 14;
+    const isMobile = navigator.maxTouchPoints > 0;
+
+    // Phase 4: WebRTC state
+    let peerConnection = null;
+    let dataChannel = null;
+    let useDataChannel = false;
+    let sameLAN = false;
+    let peerSameLAN = false;
+    let iceTimer = null;
+    let dcTimer = null;
+
+    // ─── Relay URL (derived from page origin since relay serves this file) ─
+    const RELAY_URL = (() => {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${proto}//${location.host}`;
+    })();
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ENCRYPTION (ECDH P-256 + AES-256-GCM) — must match host exactly
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Generate an ephemeral ECDH P-256 key pair.
+     */
+    async function generateKeyPair() {
+      return await crypto.subtle.generateKey(
+        { name: 'ECDH', namedCurve: 'P-256' },
+        false,
+        ['deriveKey']
+      );
+    }
+
+    /**
+     * Export a public key to base64 (raw format).
+     */
+    async function exportPublicKey(publicKey) {
+      const raw = await crypto.subtle.exportKey('raw', publicKey);
+      return btoa(String.fromCharCode(...new Uint8Array(raw)));
+    }
+
+    /**
+     * Import a peer's public key from base64.
+     */
+    async function importPublicKey(base64) {
+      const binary = atob(base64);
+      const raw = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) raw[i] = binary.charCodeAt(i);
+      return await crypto.subtle.importKey(
+        'raw',
+        raw,
+        { name: 'ECDH', namedCurve: 'P-256' },
+        false,
+        []
+      );
+    }
+
+    /**
+     * Derive the shared AES-256-GCM key using ECDH.
+     * Both sides derive the identical key independently.
+     */
+    async function deriveSharedKey(privateKey, peerPublicKey) {
+      return await crypto.subtle.deriveKey(
+        { name: 'ECDH', public: peerPublicKey },
+        privateKey,
+        { name: 'AES-GCM', length: 256 },
+        false,                       // extractable: false
+        ['encrypt', 'decrypt']       // usages
+      );
+    }
+
+    /**
+     * Encrypt plaintext with AES-256-GCM.
+     * Returns base64( random_12_byte_IV + ciphertext ).
+     */
+    async function encrypt(key, plaintext) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encoded = new TextEncoder().encode(plaintext);
+      const ciphertext = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv },
+        key,
+        encoded
+      );
+      // Combine IV + ciphertext
+      const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+      combined.set(iv, 0);
+      combined.set(new Uint8Array(ciphertext), iv.length);
+      return btoa(String.fromCharCode(...combined));
+    }
+
+    /**
+     * Decrypt a base64 AES-GCM message.
+     * Splits first 12 bytes as IV, rest as ciphertext.
+     */
+    async function decrypt(key, base64data) {
+      const binary = atob(base64data);
+      const combined = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) combined[i] = binary.charCodeAt(i);
+
+      const iv = combined.slice(0, 12);
+      const ciphertext = combined.slice(12);
+
+      const plaintext = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv },
+        key,
+        ciphertext
+      );
+      return new TextDecoder().decode(plaintext);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // UI LOGIC
+    // ═════════════════════════════════════════════════════════════════════════
+
+    // Only allow digits in the code input
+    codeInput.addEventListener('input', () => {
+      codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, 6);
+      hideError();
+    });
+
+    // Connect on Enter key
+    codeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') connectBtn.click();
+    });
+
+    // Connect button click
+    connectBtn.addEventListener('click', () => {
+      const code = codeInput.value.trim();
+      if (code.length !== 6) {
+        showError('Please enter a 6-digit code');
+        return;
+      }
+      startConnection(code);
+    });
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.classList.add('visible');
+    }
+
+    function hideError() {
+      errorMsg.classList.remove('visible');
+    }
+
+    function setLoading(loading) {
+      connectBtn.disabled = loading;
+      codeInput.disabled = loading;
+      if (loading) {
+        connectBtn.classList.add('loading');
+      } else {
+        connectBtn.classList.remove('loading');
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CONNECTION FLOW
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function startConnection(code) {
+      sessionCode = code;
+      sessionEnded = false;
+      hideError();
+      setLoading(true);
+      updateConnIndicator('connecting');
+
+      connectToRelay(code);
+    }
+
+    /**
+     * Core WebSocket connection logic. Extracted so reconnect can call it too.
+     */
+    function connectToRelay(code) {
+      ws = new WebSocket(RELAY_URL);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'client-join', code }));
+      };
+
+      ws.onmessage = async (event) => {
+        let msg;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+
+        switch (msg.type) {
+          // ─── Error from relay ─────────────────────────────────────────
+          case 'error':
+            if (isReconnecting) {
+              // During reconnect, errors mean session is gone
+              sessionEnded = true;
+              stopReconnecting();
+              if (terminal) {
+                terminal.write('\r\n\x1b[1;31m Session has ended.\x1b[0m\r\n');
+                updateStatusDot('red');
+                updateConnIndicator('lost');
+              }
+              setTimeout(() => resetToConnectScreen(), 3000);
+            } else {
+              setLoading(false);
+              showError(msg.msg || 'Connection failed');
+              ws.close();
+            }
+            break;
+
+          // ─── Host is connected, start key exchange ────────────────────
+          case 'host-connected':
+            // Capture readonly mode
+            isReadOnly = msg.readonly === true;
+            if (!isReconnecting) {
+              connectingOvl.classList.add('visible');
+            }
+            keyPair = await generateKeyPair();
+            break;
+
+          // ─── Key exchange — receive host's public key ─────────────────
+          case 'key-exchange': {
+            if (!keyPair) return;
+            const peerPubKey = await importPublicKey(msg.publicKey);
+            sharedKey = await deriveSharedKey(keyPair.privateKey, peerPubKey);
+
+            const ourPubKey = await exportPublicKey(keyPair.publicKey);
+            ws.send(JSON.stringify({ type: 'key-exchange', publicKey: ourPubKey }));
+
+            if (isReconnecting) {
+              stopReconnecting();
+              if (terminal) {
+                terminal.write('\r\n\x1b[1;32m Reconnected\x1b[0m\r\n');
+              }
+              updateStatusDot('green');
+              updateConnIndicator('relay');
+              startHeartbeat();
+            } else {
+              showTerminal();
+            }
+            break;
+          }
+
+          // ─── Phase 4: WebRTC signaling messages ───────────────────────────
+          case 'signal':
+            if (sharedKey) {
+              try {
+                const plaintext = await decrypt(sharedKey, msg.payload);
+                handleSignalMessage(JSON.parse(plaintext));
+              } catch (err) {
+                console.error('[WebRTC] Signal decryption failed:', err);
+              }
+            }
+            break;
+
+          // ─── Heartbeat from host ──────────────────────────────────────
+          case 'heartbeat':
+            missedPings = 0;
+            break;
+
+          // ─── Encrypted data from host (PTY output) ────────────────────
+          case 'data':
+            if (!sharedKey || !terminal) return;
+            try {
+              // Check for resize message from host
+              if (msg.meta === 'resize') {
+                const resizeData = JSON.parse(await decrypt(sharedKey, msg.payload));
+                if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
+                  terminal.resize(resizeData.cols, resizeData.rows);
+                }
+                break;
+              }
+              const plaintext = await decrypt(sharedKey, msg.payload);
+              terminal.write(plaintext);
+            } catch (err) {
+              console.error('Decryption error:', err);
+            }
+            break;
+
+          // ─── Host PTY exited normally ─────────────────────────────────
+          case 'session-ended':
+            sessionEnded = true;
+            stopHeartbeat();
+            stopReconnecting();
+            if (terminal) {
+              terminal.write('\r\n\x1b[1;32m Shell exited. Session ended.\x1b[0m\r\n');
+              updateStatusDot('red');
+              updateConnIndicator('lost');
+            }
+            setTimeout(() => resetToConnectScreen(), 3000);
+            break;
+
+          // ─── Session expired (rejoin window passed or code expired) ───
+          case 'session-expired':
+            sessionEnded = true;
+            stopHeartbeat();
+            stopReconnecting();
+            if (terminal) {
+              terminal.write('\r\n\x1b[1;31m Session has ended.\x1b[0m\r\n');
+              updateStatusDot('red');
+              updateConnIndicator('lost');
+            }
+            setTimeout(() => resetToConnectScreen(), 3000);
+            break;
+
+          // ─── Host disconnected ────────────────────────────────────────
+          case 'peer-disconnected':
+            stopHeartbeat();
+            sharedKey = null;
+            keyPair = null;
+            // Phase 4: Clean up WebRTC on peer disconnect
+            cleanupWebRTC();
+
+            if (msg.reason === 'host-ended') {
+              // Host deliberately closed — no reconnect
+              sessionEnded = true;
+              stopReconnecting();
+              if (terminal) {
+                terminal.write('\r\n\x1b[1;31m Host ended the session.\x1b[0m\r\n');
+                updateStatusDot('red');
+                updateConnIndicator('lost');
+              }
+              setTimeout(() => resetToConnectScreen(), 3000);
+            } else {
+              if (terminal) {
+                terminal.write('\r\n\x1b[1;33m Connection lost. Attempting to reconnect...\x1b[0m\r\n');
+                updateStatusDot('yellow');
+                updateConnIndicator('reconnecting');
+              }
+              beginReconnecting();
+            }
+            break;
+        }
+      };
+
+      ws.onerror = () => {
+        if (isReconnecting) {
+          // Silent — reconnect loop will retry
+        } else {
+          setLoading(false);
+          showError('Could not connect to relay server');
+        }
+      };
+
+      ws.onclose = () => {
+        setLoading(false);
+
+        // If we're in a live session and WS drops unexpectedly, start reconnecting
+        if (terminal && !isReconnecting && !sessionEnded) {
+          stopHeartbeat();
+          sharedKey = null;
+          keyPair = null;
+          // Phase 4: Clean up WebRTC on WS drop
+          cleanupWebRTC();
+          if (terminal) {
+            terminal.write('\r\n\x1b[1;33m Connection lost. Attempting to reconnect...\x1b[0m\r\n');
+            updateStatusDot('yellow');
+            updateConnIndicator('reconnecting');
+          }
+          beginReconnecting();
+        }
+      };
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // TERMINAL
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function showTerminal() {
+      // Hide connect screen, show terminal
+      connectScreen.style.display = 'none';
+      connectingOvl.classList.remove('visible');
+      terminalScreen.classList.add('active');
+      statusCode.textContent = `Session ${sessionCode}`;
+      updateConnIndicator('relay');
+
+      // Read-only mode setup
+      if (isReadOnly) {
+        readonlyBadge.style.display = 'flex';
+        pasteBtn.style.display = 'none';
+      } else {
+        readonlyBadge.style.display = 'none';
+        pasteBtn.style.display = '';
+      }
+
+      // Initialize xterm.js
+      terminal = new Terminal({
+        cursorBlink: !isReadOnly,
+        cursorStyle: 'bar',
+        fontSize: currentFontSize,
+        fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace",
+        disableStdin: isReadOnly,
+        theme: {
+          background: '#0c1018',
+          foreground: '#e2e8f0',
+          cursor: '#38bdf8',
+          cursorAccent: '#0c1018',
+          selectionBackground: 'rgba(56, 189, 248, 0.2)',
+          selectionForeground: '#f1f5f9',
+          black: '#1e293b',
+          red: '#f87171',
+          green: '#34d399',
+          yellow: '#fbbf24',
+          blue: '#60a5fa',
+          magenta: '#c084fc',
+          cyan: '#22d3ee',
+          white: '#e2e8f0',
+          brightBlack: '#475569',
+          brightRed: '#fca5a5',
+          brightGreen: '#6ee7b7',
+          brightYellow: '#fde68a',
+          brightBlue: '#93c5fd',
+          brightMagenta: '#d8b4fe',
+          brightCyan: '#67e8f9',
+          brightWhite: '#f8fafc',
+        },
+        allowProposedApi: true,
+      });
+
+      fitAddon = new FitAddon.FitAddon();
+      terminal.loadAddon(fitAddon);
+      terminal.open(terminalEl);
+      fitAddon.fit();
+
+      // Send initial terminal dimensions to host so PTY matches browser size
+      if (sharedKey && terminal.cols && terminal.rows) {
+        (async () => {
+          try {
+            const resizeJson = JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows });
+            const payload = await encrypt(sharedKey, resizeJson);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'data', payload, meta: 'resize' }));
+            }
+          } catch {}
+        })();
+      }
+
+      // Handle terminal input → encrypt → send to host
+      terminal.onData(async (data) => {
+        if (!sharedKey || isReadOnly) return;
+        try {
+          const payload = await encrypt(sharedKey, data);
+          // Phase 4: Route through DataChannel if active, else relay
+          if (useDataChannel && dataChannel && dataChannel.readyState === 'open') {
+            dataChannel.send(payload);
+          } else if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'data', payload }));
+          }
+        } catch (err) {
+          console.error('Encryption error:', err);
+        }
+      });
+
+      // Terminal resize → encrypt → send to host
+      terminal.onResize(async ({ cols, rows }) => {
+        if (!sharedKey) return;
+        try {
+          const resizeJson = JSON.stringify({ type: 'resize', cols, rows });
+          const payload = await encrypt(sharedKey, resizeJson);
+          // Phase 4: Route through DataChannel if active, else relay
+          if (useDataChannel && dataChannel && dataChannel.readyState === 'open') {
+            dataChannel.send(JSON.stringify({ _meta: 'resize', payload }));
+          } else if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'data', payload, meta: 'resize' }));
+          }
+        } catch {}
+      });
+
+      // Handle window resize → refit terminal
+      window.addEventListener('resize', () => {
+        if (fitAddon) fitAddon.fit();
+      });
+
+      // ─── Clipboard: Copy on selection ──────────────────────────────────
+      let lastMouseUp = { x: 0, y: 0 };
+      terminalEl.addEventListener('mouseup', (e) => {
+        lastMouseUp = { x: e.clientX, y: e.clientY };
+      });
+
+      terminal.onSelectionChange(() => {
+        const sel = terminal.getSelection();
+        if (sel && sel.length > 0) {
+          // Position copy button just above where the selection ended
+          const btnWidth = 50;
+          const btnHeight = 28;
+          let top = lastMouseUp.y - btnHeight - 8;
+          let left = lastMouseUp.x - btnWidth / 2;
+
+          // Keep within viewport
+          if (top < 4) top = lastMouseUp.y + 8;
+          if (left < 4) left = 4;
+          if (left + btnWidth > window.innerWidth - 4) left = window.innerWidth - btnWidth - 4;
+
+          copyBtn.style.top = `${top}px`;
+          copyBtn.style.left = `${left}px`;
+          copyBtn.textContent = 'Copy';
+          copyBtn.classList.remove('copied');
+          copyBtn.classList.add('visible');
+        } else {
+          copyBtn.classList.remove('visible');
+        }
+      });
+
+      // ─── Clipboard: Keyboard shortcuts ─────────────────────────────────
+      terminal.attachCustomKeyEventHandler((e) => {
+        // Ctrl+Shift+C → copy
+        if (e.ctrlKey && e.shiftKey && e.key === 'C' && e.type === 'keydown') {
+          doCopy();
+          return false;
+        }
+        // Ctrl+Shift+V → paste
+        if (e.ctrlKey && e.shiftKey && e.key === 'V' && e.type === 'keydown') {
+          doPaste();
+          return false;
+        }
+        return true;
+      });
+
+      // ─── Mobile: tap terminal to focus hidden input ────────────────────
+      if (isMobile) {
+        terminalEl.addEventListener('touchstart', () => {
+          mobileInput.focus();
+        });
+        setupMobileInput();
+      }
+
+      // Focus terminal
+      terminal.focus();
+
+      // Start heartbeat after terminal is ready
+      startHeartbeat();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CLIPBOARD
+    // ═════════════════════════════════════════════════════════════════════════
+
+    copyBtn.addEventListener('click', () => doCopy());
+
+    pasteBtn.addEventListener('click', () => doPaste());
+
+    function doCopy() {
+      if (!terminal) return;
+      const sel = terminal.getSelection();
+      if (!sel) return;
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(sel).then(() => {
+          showCopiedFeedback();
+        }).catch(() => {
+          fallbackCopy(sel);
+        });
+      } else {
+        fallbackCopy(sel);
+      }
+    }
+
+    function fallbackCopy(text) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showCopiedFeedback();
+      } catch {
+        showClipToast('Copy failed. Please copy manually.');
+      }
+    }
+
+    function showCopiedFeedback() {
+      copyBtn.textContent = '\u2713 Copied';
+      copyBtn.classList.add('copied');
+      setTimeout(() => {
+        copyBtn.classList.remove('visible', 'copied');
+      }, 1500);
+    }
+
+    async function doPaste() {
+      if (!terminal || !sharedKey || isReadOnly) return;
+      try {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+          showClipToast('Clipboard access denied. Please paste manually.');
+          return;
+        }
+        const text = await navigator.clipboard.readText();
+        if (!text) return;
+        const payload = await encrypt(sharedKey, text);
+        // Phase 4: Route through DataChannel if active, else relay
+        if (useDataChannel && dataChannel && dataChannel.readyState === 'open') {
+          dataChannel.send(payload);
+        } else if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'data', payload }));
+        }
+      } catch {
+        showClipToast('Clipboard access denied. Please paste manually.');
+      }
+    }
+
+    function showClipToast(msg) {
+      clipToast.textContent = msg;
+      clipToast.classList.add('visible');
+      setTimeout(() => clipToast.classList.remove('visible'), 3000);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // MOBILE KEYBOARD HANDLING
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function setupMobileInput() {
+      mobileInput.addEventListener('input', (e) => {
+        if (!terminal || isReadOnly) return;
+        const data = e.data;
+        if (data) {
+          terminal.paste(data);
+          // Also send to host
+          sendKeystroke(data);
+        }
+        mobileInput.value = '';
+      });
+
+      mobileInput.addEventListener('keydown', (e) => {
+        if (!terminal || isReadOnly) return;
+        let seq = null;
+        switch (e.key) {
+          case 'Backspace': seq = '\x7f'; break;
+          case 'Enter':     seq = '\r';   break;
+          case 'ArrowUp':   seq = '\x1b[A'; break;
+          case 'ArrowDown': seq = '\x1b[B'; break;
+          case 'ArrowRight':seq = '\x1b[C'; break;
+          case 'ArrowLeft': seq = '\x1b[D'; break;
+          case 'Tab':       seq = '\t'; e.preventDefault(); break;
+        }
+        if (seq) {
+          e.preventDefault();
+          terminal.paste(seq);
+          sendKeystroke(seq);
+        }
+      });
+    }
+
+    async function sendKeystroke(data) {
+      if (!sharedKey || isReadOnly) return;
+      try {
+        const payload = await encrypt(sharedKey, data);
+        // Phase 4: Route through DataChannel if active, else relay
+        if (useDataChannel && dataChannel && dataChannel.readyState === 'open') {
+          dataChannel.send(payload);
+        } else if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'data', payload }));
+        }
+      } catch {}
+    }
+
+    // Keyboard toggle button
+    kbdToggleBtn.addEventListener('click', () => {
+      mobileInput.focus();
+    });
+
+    // Font size buttons
+    fontDownBtn.addEventListener('click', () => {
+      if (currentFontSize > 10 && terminal) {
+        currentFontSize -= 2;
+        terminal.options.fontSize = currentFontSize;
+        if (fitAddon) fitAddon.fit();
+      }
+    });
+
+    fontUpBtn.addEventListener('click', () => {
+      if (currentFontSize < 20 && terminal) {
+        currentFontSize += 2;
+        terminal.options.fontSize = currentFontSize;
+        if (fitAddon) fitAddon.fit();
+      }
+    });
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CONNECTION INDICATOR
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function updateConnIndicator(state) {
+      const states = {
+        connecting:    '\u23F3 Connecting...',
+        negotiating:   '\u23F3 Establishing direct connection...',
+        direct:        '\uD83D\uDFE2 Direct (Local)',
+        relay:         '\uD83D\uDD34 Relay',
+        reconnecting:  '\uD83D\uDFE1 Reconnecting...',
+        lost:          '\u274C Connection Lost',
+      };
+      if (connIndicator) {
+        connIndicator.textContent = states[state] || '';
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PHASE 4: WebRTC LOCAL P2P
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    const LOCAL_IP_REGEX = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/;
+    const ICE_TIMEOUT_MS = 3000;
+    const DC_OPEN_TIMEOUT_MS = 5000;
+
+    /**
+     * Parse an ICE candidate string to check if it's a "host" type
+     * with a local/private IP address.
+     */
+    function isHostCandidate(candidateStr) {
+      if (!candidateStr) return false;
+      const typMatch = candidateStr.match(/typ\s+(\S+)/);
+      if (!typMatch) return false;
+      if (typMatch[1] !== 'host') return false;
+      // Check for private IP
+      const ipMatch = candidateStr.match(/(\d+\.\d+\.\d+\.\d+)/);
+      if (ipMatch && LOCAL_IP_REGEX.test(ipMatch[1])) return true;
+      // IPv6 link-local
+      if (candidateStr.includes('fe80::')) return true;
+      // typ host is enough
+      return true;
+    }
+
+    /**
+     * Helper to encrypt and send WebRTC signaling messages.
+     */
+    async function sendEncryptedSignal(payloadObj) {
+      if (ws && ws.readyState === WebSocket.OPEN && sharedKey) {
+        try {
+          const payloadStr = JSON.stringify(payloadObj);
+          const encryptedPayload = await encrypt(sharedKey, payloadStr);
+          ws.send(JSON.stringify({ type: 'signal', payload: encryptedPayload }));
+        } catch (err) {
+          console.error('[WebRTC] Signal encryption failed:', err);
+        }
+      }
+    }
+
+    /**
+     * Handle incoming WebRTC signaling messages from the host via relay.
+     */
+    function handleSignalMessage(payload) {
+      if (!payload || !payload.kind) return;
+
+      switch (payload.kind) {
+        case 'offer':
+          setupWebRTC(payload);
+          break;
+
+        case 'ice':
+          if (peerConnection && payload.candidate) {
+            // Check if remote candidate is host type
+            if (!peerSameLAN && isHostCandidate(payload.candidate)) {
+              peerSameLAN = true;
+              console.log('[WebRTC] Remote host-type ICE candidate found');
+            }
+            try {
+              peerConnection.addIceCandidate(new RTCIceCandidate({
+                candidate: payload.candidate,
+                sdpMid: payload.mid || '0',
+                sdpMLineIndex: 0,
+              })).catch(() => {});
+            } catch {}
+          }
+          break;
+
+        case 'webrtc-abort':
+          console.log('[WebRTC] Host aborted WebRTC — using relay');
+          cleanupWebRTC();
+          break;
+      }
+    }
+
+    /**
+     * Set up the browser-side WebRTC PeerConnection in response to an offer.
+     */
+    async function setupWebRTC(offerPayload) {
+      try {
+        // Clean up any previous connection
+        cleanupWebRTC();
+
+        console.log('[WebRTC] Setting up peer connection...');
+        updateConnIndicator('negotiating');
+
+        peerConnection = new RTCPeerConnection({ iceServers: [] });
+
+        // ─── ICE candidate handling ──────────────────────────────────
+        peerConnection.onicecandidate = (e) => {
+          if (!e.candidate) return;
+          const candidateStr = e.candidate.candidate;
+
+          // Check if our own candidate is host type
+          if (!sameLAN && isHostCandidate(candidateStr)) {
+            sameLAN = true;
+            console.log('[WebRTC] Local host-type ICE candidate found');
+          }
+
+          // Send candidate to host via relay
+          sendEncryptedSignal({ kind: 'ice', candidate: candidateStr, mid: e.candidate.sdpMid });
+        };
+
+        peerConnection.onconnectionstatechange = () => {
+          const state = peerConnection ? peerConnection.connectionState : 'unknown';
+          console.log('[WebRTC] Connection state:', state);
+          if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+            if (useDataChannel) {
+              console.log('[WebRTC] Connection lost — falling back to relay');
+              useDataChannel = false;
+              updateConnIndicator('relay');
+            }
+            cleanupWebRTC();
+          }
+        };
+
+        // ─── DataChannel handling (host creates the channel, we receive it) ──
+        peerConnection.ondatachannel = (e) => {
+          dataChannel = e.channel;
+          console.log('[WebRTC] DataChannel received:', dataChannel.label);
+
+          dataChannel.onopen = () => {
+            clearWebRTCTimers();
+            useDataChannel = true;
+            console.log('[WebRTC] DataChannel open — relay bypassed');
+            updateConnIndicator('direct');
+          };
+
+          dataChannel.onclose = () => {
+            console.log('[WebRTC] DataChannel closed');
+            if (useDataChannel) {
+              useDataChannel = false;
+              updateConnIndicator('relay');
+            }
+          };
+
+          dataChannel.onerror = (err) => {
+            console.error('[WebRTC] DataChannel error:', err);
+          };
+
+          dataChannel.onmessage = async (event) => {
+            if (!sharedKey || !terminal) return;
+            try {
+              const rawData = event.data;
+
+              // Check if this is a tagged message (resize)
+              let parsed;
+              try {
+                parsed = JSON.parse(rawData);
+              } catch {
+                parsed = null;
+              }
+
+              if (parsed && parsed._meta === 'resize') {
+                const resizeData = JSON.parse(await decrypt(sharedKey, parsed.payload));
+                if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
+                  terminal.resize(resizeData.cols, resizeData.rows);
+                }
+                return;
+              }
+
+              // Normal encrypted terminal data
+              const plaintext = await decrypt(sharedKey, rawData);
+              terminal.write(plaintext);
+            } catch (err) {
+              console.error('[WebRTC] Decryption error:', err);
+            }
+          };
+        };
+
+        // ─── Set remote offer and create answer ─────────────────────
+        await peerConnection.setRemoteDescription(new RTCSessionDescription({
+          type: offerPayload.sdpType || 'offer',
+          sdp: offerPayload.sdp,
+        }));
+
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        // Send answer back to host via relay
+        sendEncryptedSignal({ kind: 'answer', sdp: answer.sdp, sdpType: answer.type });
+
+        // ─── ICE timeout: 3 seconds ───────────────────────────────
+        iceTimer = setTimeout(() => {
+          if (useDataChannel) return; // Already connected
+          if (!sameLAN || !peerSameLAN) {
+            console.log('[WebRTC] Not on same LAN — using relay');
+            sendEncryptedSignal({ kind: 'webrtc-abort' });
+            cleanupWebRTC();
+            updateConnIndicator('relay');
+          } else {
+            // Same LAN confirmed — wait for DataChannel
+            console.log('[WebRTC] Same LAN detected — waiting for DataChannel...');
+            dcTimer = setTimeout(() => {
+              if (useDataChannel) return;
+              console.log('[WebRTC] DataChannel open timeout — falling back to relay');
+              sendEncryptedSignal({ kind: 'webrtc-abort' });
+              cleanupWebRTC();
+              updateConnIndicator('relay');
+            }, DC_OPEN_TIMEOUT_MS);
+          }
+        }, ICE_TIMEOUT_MS);
+
+      } catch (err) {
+        console.error('[WebRTC] Setup failed:', err);
+        cleanupWebRTC();
+        updateConnIndicator('relay');
+      }
+    }
+
+    function clearWebRTCTimers() {
+      if (iceTimer) { clearTimeout(iceTimer); iceTimer = null; }
+      if (dcTimer) { clearTimeout(dcTimer); dcTimer = null; }
+    }
+
+    function cleanupWebRTC() {
+      clearWebRTCTimers();
+      useDataChannel = false;
+      sameLAN = false;
+      peerSameLAN = false;
+
+      if (dataChannel) {
+        try { dataChannel.close(); } catch {}
+        dataChannel = null;
+      }
+      if (peerConnection) {
+        try { peerConnection.close(); } catch {}
+        peerConnection = null;
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // HEARTBEAT — 5s ping, 2 missed = connection dead
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function startHeartbeat() {
+      stopHeartbeat();
+      missedPings = 0;
+      heartbeatInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'heartbeat' }));
+        }
+        missedPings++;
+
+        if (missedPings >= MAX_MISSED + 1) {
+          stopHeartbeat();
+          sharedKey = null;
+          keyPair = null;
+          // Phase 4: Clean up WebRTC on heartbeat loss
+          cleanupWebRTC();
+          if (terminal) {
+            terminal.write('\r\n\x1b[1;33m Connection lost. Attempting to reconnect...\x1b[0m\r\n');
+            updateStatusDot('yellow');
+            updateConnIndicator('reconnecting');
+          }
+          beginReconnecting();
+        }
+      }, HEARTBEAT_MS);
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // RECONNECT — retry every 5s with stored code
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function beginReconnecting() {
+      if (isReconnecting || sessionEnded) return;
+      isReconnecting = true;
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+
+      reconnectInterval = setInterval(() => {
+        if (sessionEnded) { stopReconnecting(); return; }
+        connectToRelay(sessionCode);
+      }, RECONNECT_MS);
+    }
+
+    function stopReconnecting() {
+      isReconnecting = false;
+      if (reconnectInterval) {
+        clearInterval(reconnectInterval);
+        reconnectInterval = null;
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // STATUS DOT — visual connection state
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function updateStatusDot(color) {
+      const dot = document.querySelector('.status-brand .dot');
+      if (!dot) return;
+      const colors = {
+        green:  { bg: '#34d399', shadow: 'rgba(52, 211, 153, 0.5)' },
+        yellow: { bg: '#fbbf24', shadow: 'rgba(251, 191, 36, 0.5)' },
+        red:    { bg: '#f87171', shadow: 'rgba(248, 113, 113, 0.5)' },
+      };
+      const c = colors[color] || colors.green;
+      dot.style.background = c.bg;
+      dot.style.boxShadow = `0 0 6px ${c.shadow}`;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // RESET — return to the code entry screen
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function resetToConnectScreen() {
+      sessionEnded = true;
+      stopHeartbeat();
+      stopReconnecting();
+      // Phase 4: Clean up WebRTC
+      cleanupWebRTC();
+
+      if (terminal) {
+        terminal.dispose();
+        terminal = null;
+      }
+      fitAddon = null;
+      terminalEl.innerHTML = '';
+      updateConnIndicator('connecting');
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+      ws = null;
+
+      keyPair = null;
+      sharedKey = null;
+      sessionCode = '';
+      isReadOnly = false;
+      currentFontSize = 14;
+
+      // Reset UI
+      terminalScreen.classList.remove('active');
+      connectScreen.style.display = '';
+      connectingOvl.classList.remove('visible');
+      readonlyBadge.style.display = 'none';
+      pasteBtn.style.display = '';
+      copyBtn.classList.remove('visible');
+
+      updateStatusDot('green');
+
+      codeInput.value = '';
+      codeInput.disabled = false;
+      connectBtn.disabled = false;
+      connectBtn.classList.remove('loading');
+      hideError();
+
+      codeInput.focus();
+    }
+  </script>
+</body>
+</html>

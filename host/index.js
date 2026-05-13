@@ -1,0 +1,607 @@
+/**
+ * PeerTerm Host Agent
+ * 
+ * CLI tool that:
+ *   1. Connects to the relay server and registers sessions
+ *   2. Manages multiple simultaneous sessions
+ *   3. Performs ECDH key exchange for E2E encryption per session
+ *   4. Spawns independent PTY instances per session
+ *   5. Supports read-only mode and terminal resize
+ * 
+ * Environment variables:
+ *   RELAY_URL  — WebSocket URL of the relay server (default: ws://localhost:8080)
+ * 
+ * CLI flags:
+ *   --expiry <value>   Session code expiry (e.g. 5m, 30s, 1h). Default: 5m
+ *   --readonly         Prevent client keystrokes from reaching the PTY
+ */
+
+import * as dotenv from 'dotenv';
+dotenv.config();
+import os from 'os';
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import WebSocket from 'ws';
+import pty from 'node-pty';
+import {
+  generateKeyPair,
+  exportPublicKey,
+  importPublicKey,
+  deriveSharedKey,
+  encrypt,
+  decrypt,
+} from './crypto.js';
+import { HostWebRTC } from './webrtc.js';
+
+// ─── Configuration ───────────────────────────────────────────────────────────
+const RELAY_URL = process.env.RELAY_URL || 'ws://localhost:8080';
+const HEARTBEAT_INTERVAL_MS = 5000;
+const MAX_MISSED_PINGS = 2;
+
+// ─── CLI Argument Parsing ────────────────────────────────────────────────────
+
+function parseDuration(str) {
+  const match = str.match(/^(\d+)(s|m|h)$/i);
+  if (!match) return null;
+  const value = parseInt(match[1], 10);
+  const unit = match[2].toLowerCase();
+  switch (unit) {
+    case 's': return value * 1000;
+    case 'm': return value * 60 * 1000;
+    case 'h': return value * 60 * 60 * 1000;
+    default:  return null;
+  }
+}
+
+function formatDuration(ms) {
+  if (ms >= 3600000) return `${Math.round(ms / 3600000)} hour(s)`;
+  if (ms >= 60000) return `${Math.round(ms / 60000)} minute(s)`;
+  return `${Math.round(ms / 1000)} second(s)`;
+}
+
+function getExpiryFromArgs() {
+  const args = process.argv.slice(2);
+  const idx = args.indexOf('--expiry');
+  if (idx === -1 || idx + 1 >= args.length) return 5 * 60 * 1000;
+  const parsed = parseDuration(args[idx + 1]);
+  if (!parsed) {
+    console.error(`  [error] Invalid expiry format: "${args[idx + 1]}". Use 30s, 5m, or 1h.`);
+    process.exit(1);
+  }
+  return parsed;
+}
+
+function isReadOnlyFlag() {
+  return process.argv.slice(2).includes('--readonly');
+}
+
+// ─── Shell Detection ─────────────────────────────────────────────────────────
+
+function detectShell() {
+  const platform = os.platform();
+  if (process.env.SHELL) return process.env.SHELL;
+  if (platform === 'win32') return process.env.COMSPEC || 'powershell.exe';
+  try {
+    const passwd = fs.readFileSync('/etc/passwd', 'utf-8');
+    const username = os.userInfo().username;
+    const line = passwd.split('\n').find((l) => l.startsWith(username + ':'));
+    if (line) {
+      const shell = line.split(':').pop().trim();
+      if (shell) return shell;
+    }
+  } catch {}
+  return platform === 'win32' ? 'powershell.exe' : 'bash';
+}
+
+// ─── Session Class ───────────────────────────────────────────────────────────
+
+class Session {
+  constructor(shell, expiryMs, readOnly, onDestroy) {
+    this.shell = shell;
+    this.expiryMs = expiryMs;
+    this.readOnly = readOnly;
+    this.onDestroy = onDestroy;
+
+    this.ws = null;
+    this.code = null;
+    this.keyPair = null;
+    this.sharedKey = null;
+    this.ptyProcess = null;
+    this.heartbeatInterval = null;
+    this.missedPings = 0;
+    this.isClientConnected = false;
+    this.awaitingRejoin = false;
+    this.destroyed = false;
+    this.createdAt = Date.now();
+
+    // Phase 4: WebRTC state
+    this.webrtc = null;
+    this.useDataChannel = false;
+  }
+
+  log(msg) {
+    const prefix = this.code ? `[${this.code}]` : '[???]';
+    console.log(`  ${prefix} ${msg}`);
+  }
+
+  // ─── Start the session ──────────────────────────────────────────────
+  async start() {
+    return new Promise((resolve, reject) => {
+      this.ws = new WebSocket(RELAY_URL);
+
+      this.ws.on('open', () => {
+        this.ws.send(JSON.stringify({
+          type: 'host-register',
+          expiry: this.expiryMs,
+          readonly: this.readOnly,
+        }));
+      });
+
+      this.ws.on('message', async (raw) => {
+        let msg;
+        try {
+          msg = JSON.parse(raw.toString());
+        } catch {
+          this.log('Invalid message from relay');
+          return;
+        }
+
+        switch (msg.type) {
+          case 'code': {
+            this.code = msg.code;
+            const roTag = this.readOnly ? ' (read-only)' : '';
+            console.log('');
+            console.log(`  ┌──────────────────────────────────────┐`);
+            console.log(`  │   Session Code: ${this.code}${roTag.padEnd(20 - roTag.length)}│`);
+            console.log(`  │   Expires in:  ${formatDuration(this.expiryMs).padEnd(21)}│`);
+            console.log(`  └──────────────────────────────────────┘`);
+            console.log('');
+            resolve(this.code);
+            break;
+          }
+
+          case 'client-connected': {
+            if (this.awaitingRejoin) {
+              this.log('Client reconnected.');
+              this.awaitingRejoin = false;
+            } else {
+              this.log('Client connected! Starting key exchange...');
+            }
+            this.isClientConnected = true;
+            this.missedPings = 0;
+
+            this.keyPair = await generateKeyPair();
+            const pubKeyBase64 = await exportPublicKey(this.keyPair.publicKey);
+            this.ws.send(JSON.stringify({ type: 'key-exchange', publicKey: pubKeyBase64 }));
+            break;
+          }
+
+          case 'key-exchange': {
+            if (!this.keyPair) return;
+            this.log('Deriving shared secret...');
+
+            const peerPublicKey = await importPublicKey(msg.publicKey);
+            this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
+            this.log('Encrypted tunnel active');
+
+            this.startHeartbeat();
+
+            if (!this.ptyProcess) {
+              this.spawnTerminal();
+            }
+
+            // Phase 4: Initiate WebRTC after encryption is ready
+            this._initiateWebRTC();
+            break;
+          }
+
+          // Phase 4: WebRTC signaling messages
+          case 'signal': {
+            if (this.webrtc && this.sharedKey) {
+              try {
+                const plaintext = await decrypt(this.sharedKey, msg.payload);
+                this.webrtc.handleSignal(JSON.parse(plaintext));
+              } catch (err) {
+                this.log(`[WebRTC] Signal decryption failed: ${err.message}`);
+              }
+            }
+            break;
+          }
+
+          case 'heartbeat': {
+            this.missedPings = 0;
+            break;
+          }
+
+          case 'data': {
+            if (!this.sharedKey || !this.ptyProcess) return;
+            try {
+              const plaintext = await decrypt(this.sharedKey, msg.payload);
+
+              // Check if this is a resize event
+              if (msg.meta === 'resize') {
+                try {
+                  const resizeData = JSON.parse(plaintext);
+                  if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
+                    this.ptyProcess.resize(resizeData.cols, resizeData.rows);
+                    this.log(`Terminal resized to ${resizeData.cols}x${resizeData.rows}`);
+                  }
+                } catch {}
+                return;
+              }
+
+              // Normal keystroke — drop if read-only
+              if (this.readOnly) return;
+              this.ptyProcess.write(plaintext);
+            } catch (err) {
+              this.log(`Decryption failed: ${err.message}`);
+            }
+            break;
+          }
+
+          case 'peer-disconnected': {
+            this.log('Client disconnected. Rejoin window: 2 minutes.');
+            this.isClientConnected = false;
+            this.awaitingRejoin = true;
+            this.sharedKey = null;
+            this.keyPair = null;
+            this.stopHeartbeat();
+            // Phase 4: Clean up WebRTC on peer disconnect
+            this._cleanupWebRTC();
+            break;
+          }
+
+          case 'session-expired': {
+            this.log('Rejoin window expired. Session ended.');
+            this.destroy();
+            break;
+          }
+
+          case 'error': {
+            this.log(`Error: ${msg.msg}`);
+            break;
+          }
+        }
+      });
+
+      this.ws.on('close', () => {
+        if (!this.destroyed) {
+          this.log('Connection to relay lost.');
+          this.destroy();
+        }
+      });
+
+      this.ws.on('error', (err) => {
+        if (err.code === 'ECONNREFUSED') {
+          console.error(`  [error] Relay not reachable at ${RELAY_URL}`);
+          reject(err);
+        } else {
+          this.log(`WS error: ${err.message}`);
+        }
+      });
+    });
+  }
+
+  // ─── Send encrypted resize to client ────────────────────────────────
+  async _sendResize(cols, rows) {
+    if (!this.sharedKey) return;
+    try {
+      const resizeJson = JSON.stringify({ type: 'resize', cols, rows });
+      const payload = await encrypt(this.sharedKey, resizeJson);
+      // Phase 4: Route through DataChannel if active, else relay
+      if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+        // Send resize as a tagged message so client can distinguish
+        this.webrtc.send(JSON.stringify({ _meta: 'resize', payload }));
+      } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'data', payload, meta: 'resize' }));
+      }
+    } catch {}
+  }
+
+  // ─── Heartbeat ──────────────────────────────────────────────────────
+  startHeartbeat() {
+    this.stopHeartbeat();
+    this.missedPings = 0;
+    this.heartbeatInterval = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'heartbeat' }));
+      }
+      this.missedPings++;
+      if (this.missedPings >= MAX_MISSED_PINGS + 1) {
+        this.log('Client heartbeat lost. Waiting for reconnect...');
+        this.isClientConnected = false;
+        this.awaitingRejoin = true;
+        this.sharedKey = null;
+        this.keyPair = null;
+        this.stopHeartbeat();
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  // ─── Spawn PTY ──────────────────────────────────────────────────────
+  spawnTerminal() {
+    const cols = 80;
+    const rows = 24;
+    this.log(`Spawning terminal: ${this.shell} (${cols}x${rows})`);
+
+    this.ptyProcess = pty.spawn(this.shell, [], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: process.env.HOME || process.env.USERPROFILE || '.',
+      env: process.env,
+    });
+
+    this.ptyProcess.onData(async (data) => {
+      if (!this.sharedKey) return;
+      try {
+        const payload = await encrypt(this.sharedKey, data);
+        // Phase 4: Route through DataChannel if active, else relay
+        if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+          this.webrtc.send(payload);
+        } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: 'data', payload }));
+        }
+      } catch {}
+    });
+
+    this.ptyProcess.onExit(({ exitCode }) => {
+      this.log(`Shell exited with code ${exitCode}`);
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'session-ended' }));
+      }
+      this.destroy();
+    });
+  }
+
+  // ─── Destroy ────────────────────────────────────────────────────────
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.stopHeartbeat();
+    // Phase 4: Clean up WebRTC
+    this._cleanupWebRTC();
+    if (this.ptyProcess) {
+      try { this.ptyProcess.kill(); } catch {}
+      this.ptyProcess = null;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.close();
+    }
+    this.log('Session ended.');
+    if (this.onDestroy) this.onDestroy(this.code);
+  }
+
+  // ─── Phase 4: WebRTC helpers ─────────────────────────────────────
+
+  _initiateWebRTC() {
+    // Clean up any previous WebRTC instance
+    this._cleanupWebRTC();
+
+    this.webrtc = new HostWebRTC(this.log.bind(this));
+
+    this.webrtc.onOpen(() => {
+      this.useDataChannel = true;
+    });
+
+    this.webrtc.onClose(() => {
+      if (this.useDataChannel) {
+        this.log('[WebRTC] DataChannel closed — falling back to relay');
+        this.useDataChannel = false;
+      }
+    });
+
+    this.webrtc.onMessage(async (data) => {
+      if (!this.sharedKey || !this.ptyProcess) return;
+      try {
+        // Check if this is a tagged message (resize)
+        let parsed;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          parsed = null;
+        }
+
+        if (parsed && parsed._meta === 'resize') {
+          const resizeData = JSON.parse(await decrypt(this.sharedKey, parsed.payload));
+          if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
+            this.ptyProcess.resize(resizeData.cols, resizeData.rows);
+            this.log(`Terminal resized to ${resizeData.cols}x${resizeData.rows}`);
+          }
+          return;
+        }
+
+        // Normal encrypted terminal data
+        const plaintext = await decrypt(this.sharedKey, data);
+        if (this.readOnly) return;
+        this.ptyProcess.write(plaintext);
+      } catch (err) {
+        this.log(`[WebRTC] Decryption failed: ${err.message}`);
+      }
+    });
+
+    // Start the WebRTC negotiation
+    this.webrtc.initiate(async (msg) => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN && this.sharedKey) {
+        try {
+          const payloadStr = JSON.stringify(msg.payload);
+          const encryptedPayload = await encrypt(this.sharedKey, payloadStr);
+          this.ws.send(JSON.stringify({ type: 'signal', payload: encryptedPayload }));
+        } catch (e) {
+          this.log(`[WebRTC] Failed to encrypt signal: ${e.message}`);
+        }
+      }
+    });
+  }
+
+  _cleanupWebRTC() {
+    this.useDataChannel = false;
+    if (this.webrtc) {
+      this.webrtc.close();
+      this.webrtc = null;
+    }
+  }
+
+  // ─── Status string for list command ─────────────────────────────────
+  getStatus() {
+    const elapsed = Date.now() - this.createdAt;
+    const remaining = Math.max(0, this.expiryMs - elapsed);
+    let status = '';
+    if (this.isClientConnected) {
+      status = 'client connected';
+    } else if (this.awaitingRejoin) {
+      status = 'awaiting rejoin';
+    } else {
+      status = `waiting for client (expires in ${formatDuration(remaining)})`;
+    }
+    if (this.readOnly) status += '  (readonly)';
+    return status;
+  }
+}
+
+// ─── Session Manager ─────────────────────────────────────────────────────────
+
+class SessionManager {
+  constructor(shell, expiryMs, readOnly) {
+    this.shell = shell;
+    this.expiryMs = expiryMs;
+    this.readOnly = readOnly;
+    this.sessions = new Map(); // code → Session
+  }
+
+  async createSession() {
+    const session = new Session(this.shell, this.expiryMs, this.readOnly, (code) => {
+      this.sessions.delete(code);
+    });
+
+    try {
+      const code = await session.start();
+      this.sessions.set(code, session);
+      return code;
+    } catch (err) {
+      console.error(`  [error] Failed to create session: ${err.message}`);
+      return null;
+    }
+  }
+
+  listSessions() {
+    if (this.sessions.size === 0) {
+      console.log('  No active sessions.');
+      return;
+    }
+    console.log('');
+    console.log('  Active sessions:');
+    for (const [code, session] of this.sessions) {
+      console.log(`    ${code} — ${session.getStatus()}`);
+    }
+    console.log('');
+  }
+
+  killSession(code) {
+    const session = this.sessions.get(code);
+    if (!session) {
+      console.log(`  Session ${code} not found.`);
+      return;
+    }
+    session.destroy();
+    console.log(`  Session ${code} killed.`);
+  }
+
+  killAll() {
+    for (const [, session] of this.sessions) {
+      session.destroy();
+    }
+    this.sessions.clear();
+  }
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
+
+async function main() {
+  const shell = detectShell();
+  const expiryMs = getExpiryFromArgs();
+  const readOnly = isReadOnlyFlag();
+
+  console.log('');
+  console.log('  PeerTerm Host Agent');
+  console.log(`  Shell: ${shell}`);
+  console.log(`  Relay: ${RELAY_URL}`);
+  if (readOnly) console.log('  Mode:  READ-ONLY');
+  console.log('');
+
+  const manager = new SessionManager(shell, expiryMs, readOnly);
+
+  // Create first session automatically
+  const firstCode = await manager.createSession();
+  if (!firstCode) {
+    console.error('  Failed to start. Is the relay server running?');
+    process.exit(1);
+  }
+
+  // ─── Interactive CLI menu ──────────────────────────────────────────
+  console.log('  ─────────────────────────────────────────');
+  console.log('  Commands:');
+  console.log('    [n] New session');
+  console.log('    [l] List sessions');
+  console.log('    [k <code>] Kill session');
+  console.log('    [q] Quit all');
+  console.log('  ─────────────────────────────────────────');
+  console.log('');
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: '  > ',
+  });
+
+  rl.prompt();
+
+  rl.on('line', async (line) => {
+    const input = line.trim();
+
+    if (input === 'n') {
+      console.log('  Creating new session...');
+      await manager.createSession();
+    } else if (input === 'l') {
+      manager.listSessions();
+    } else if (input.startsWith('k ')) {
+      const code = input.slice(2).trim();
+      manager.killSession(code);
+    } else if (input === 'q') {
+      console.log('  Shutting down all sessions...');
+      manager.killAll();
+      rl.close();
+      process.exit(0);
+    } else if (input) {
+      console.log('  Unknown command. Use n, l, k <code>, or q.');
+    }
+
+    rl.prompt();
+  });
+
+  rl.on('close', () => {
+    manager.killAll();
+    process.exit(0);
+  });
+
+  process.on('SIGINT', () => {
+    console.log('');
+    console.log('  Shutting down...');
+    manager.killAll();
+    rl.close();
+    process.exit(0);
+  });
+}
+
+main().catch((err) => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});

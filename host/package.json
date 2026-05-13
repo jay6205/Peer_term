@@ -1,0 +1,16 @@
+{
+  "name": "peer-term-host",
+  "version": "1.0.0",
+  "description": "PeerTerm host CLI agent — spawns PTY, encrypts I/O",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-datachannel": "^0.32.3",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}
