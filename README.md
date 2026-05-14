@@ -1,122 +1,120 @@
-## PeerTerm
+<div align="center">
+  <h1>PeerTerm</h1>
+  <p><strong>Share your terminal instantly over WebRTC using a 6-digit code.</strong></p>
+  <p>Fully end-to-end encrypted. No configuration. No accounts required.</p>
+  
+  <br />
 
-Share your terminal with anyone using a 6-digit code. No config. Encrypted.
+  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+  [![Node.js](https://img.shields.io/badge/Node.js-18+-success)](https://nodejs.org/)
 
----
+</div>
+
+<hr />
 
 ## Features
 
-### Instant Sharing
-Run a single command, get a 6-digit code. Share the code — the other person opens a browser and they're in. No port forwarding, no SSH keys, no accounts, no signup.
-
-### End-to-End Encrypted
-Every keystroke and every byte of terminal output is encrypted with **AES-256-GCM**. Keys are exchanged using **ECDH P-256** — the relay server only sees ciphertext. Even the WebRTC signaling metadata (ICE candidates, SDP) is encrypted.
-
-### Works Everywhere
-The host runs as a Node.js CLI or standalone binary. The client is a single HTML page — works on any device with a modern browser. No installation required for the viewer.
-
-### Local P2P
-When host and client are on the same LAN, PeerTerm automatically establishes a direct **WebRTC DataChannel** connection, bypassing the relay entirely. Zero latency, zero external traffic.
-
-### Read-Only Mode
-Share your terminal for demos, pair debugging, or interviews with `--readonly`. Viewers can see everything but can't type.
+* **Instant Sharing** – Run a single command, get a 6-digit code. Share the code, and the viewer connects instantly via their browser. No port forwarding, SSH keys, or signups.
+* **End-to-End Encrypted** – Every keystroke and terminal output byte is encrypted locally using **AES-256-GCM**. Keys are exchanged via **ECDH P-256**. The relay server only ever sees opaque ciphertext.
+* **Works Everywhere** – The host runs as a Node.js CLI. The client is a lightweight, single-page HTML application that works on any modern browser.
+* **Local P2P (Zero Latency)** – When the host and client are on the same local network, PeerTerm establishes a direct **WebRTC DataChannel**, bypassing the relay server entirely for zero-latency, private connections.
+* **Read-Only Mode** – Perfect for demos, pair debugging, or interviews. Use `--readonly` so viewers can watch your terminal without the ability to execute commands.
 
 ---
 
 ## Quick Start
 
-### With npx (requires Node.js 18+)
+You don't even need to install anything. Just use `npx` (requires Node.js 18+):
 
 ```bash
 npx peer-term
 ```
 
-That's it. You'll see a 6-digit code. Share it.
+That's it! You will be given a 6-digit session code. 
 
-### With a standalone binary
-
-Download the latest binary from [Releases](https://github.com/YOUR_USERNAME/peer-term/releases):
-
-| Platform | Binary |
-|---|---|
-| Linux x64 | `peer-term-linux-x64` |
-| Linux ARM64 | `peer-term-linux-arm64` |
-| macOS x64 | `peer-term-macos-x64` |
-| macOS ARM64 | `peer-term-macos-arm64` |
-| Windows x64 | `peer-term-win-x64.exe` |
-
-```bash
-chmod +x peer-term-linux-x64
-./peer-term-linux-x64
-```
-
-> **Note:** The binary requires `node-pty` and `node-datachannel` native modules to be present alongside it. See [Native Dependencies](#native-dependencies) below.
-
-### Connecting as a viewer
-
-Open the client URL in a browser and enter the 6-digit code:
-
-- **Self-hosted relay**: `http://localhost:8080`
-- **Deployed relay**: `https://your-relay-url.com`
-- **GitHub Pages**: `https://YOUR_USERNAME.github.io/peer-term/`
-- **Custom domain**: `https://peerterm.dev`
-
-For a custom relay, pass it as a query parameter:
-
-```
-https://YOUR_USERNAME.github.io/peer-term/?relay=wss://your-relay.com
-```
+**Connecting as a Viewer:**
+Share the code with your peer. They simply need to visit your client URL and enter the code:
+* **Default Client:** [peerterm.dev](https://peerterm.dev)
+* **Self-hosted Relay:** `http://localhost:8080`
 
 ---
 
-## CLI Usage
+## Installation & Usage
 
+### Global NPM Installation
+```bash
+npm install -g peer-term
 ```
+
+### CLI Options
+
+```text
 Usage: peer-term [options]
 
 Options:
   --expiry <time>     Session expiry time (e.g. 5m, 30s, 1h)  [default: 5m]
   --readonly          Share in view-only mode
+  --path <dir>        Starting directory for the terminal session [default: home]
   --relay <url>       Custom relay server URL
   --verbose           Enable debug logging
   --help              Show this help message
   --version           Print version number
 ```
 
-### Examples
-
+**Examples:**
 ```bash
-peer-term                        # start session, default settings
-peer-term --expiry 10m           # custom expiry
-peer-term --readonly             # view-only session
-peer-term --verbose              # debug logs
-peer-term --relay wss://custom   # use custom relay server
+peer-term                        # Start session with default settings
+peer-term --expiry 10m           # Custom expiry window
+peer-term --path ~/projects      # Open terminal at a specific path
+peer-term --readonly             # View-only session
+peer-term --relay wss://custom   # Use a custom relay server
+peer-term --verbose              # Enable debug logging
 ```
 
 ---
 
-## Deploy Your Own Relay
+## Architecture & Security
 
-The relay server is a lightweight Node.js app. Deploy it anywhere that supports WebSockets.
+### How Encryption Works
+When a client joins a session, both the host and client generate fresh **ECDH P-256** key pairs. Public keys are exchanged securely via the relay server. Both sides then independently derive the exact same **AES-256-GCM** shared secret. 
 
-### Railway
+Every single message (terminal output, keystrokes, resize events) is encrypted using this shared secret alongside a fresh, random 12-byte Initialization Vector (IV). The relay server acts as a blind forwarder, passing opaque base64 blobs that it cannot decrypt. 
 
-1. Fork this repo
-2. Connect your GitHub repo in Railway
-3. Set the root directory to `relay/`
-4. Railway auto-detects Node.js and deploys
-5. Set `PORT` environment variable if needed (Railway usually provides one)
+Even WebRTC signaling metadata (ICE candidates, SDP offers/answers) is encrypted before being sent over the relay, preventing IP leaks to the relay operator.
 
-### Render
+---
 
-1. Create a new Web Service on Render
-2. Connect your GitHub repo
-3. Set root directory to `relay/`
-4. Set build command: `npm ci --only=production`
-5. Set start command: `node server.js`
-6. Add environment variable: `PORT=8080`
+## Deployment 
 
-### Fly.io
+Want to run your own infrastructure? PeerTerm consists of a lightweight WebSocket relay server and a static HTML client.
+
+### 1. Deploy the Relay Server
+
+The relay server is a simple Node.js app that can be deployed anywhere that supports WebSockets.
+
+<details>
+<summary><strong>Railway / Render</strong></summary>
+
+1. Connect your GitHub repository.
+2. Set the root directory to `relay/`.
+3. Set the build command: `npm ci --only=production`.
+4. Set the start command: `node server.js`.
+5. Expose the `PORT` environment variable (e.g., `8080`).
+
+</details>
+
+<details>
+<summary><strong>Docker</strong></summary>
+
+```bash
+docker build -f relay/Dockerfile -t peerterm-relay .
+docker run -p 8080:8080 peerterm-relay
+```
+
+</details>
+
+<details>
+<summary><strong>Fly.io</strong></summary>
 
 ```bash
 cd relay
@@ -124,118 +122,41 @@ fly launch
 fly deploy
 ```
 
-### Docker
+</details>
 
-```bash
-docker build -f relay/Dockerfile -t peerterm-relay .
-docker run -p 8080:8080 peerterm-relay
-```
+### 2. Host the Client
 
----
+The client is a single `index.html` file located in the `client/` directory.
 
-## Host the Client
+* **GitHub Pages:** Enable GitHub Pages pointing to the `/client` directory. 
+* **Vercel / Netlify:** Import the repository and set the root directory to `client/`. Zero build configuration is required.
 
-The client is a single `index.html` file. Host it anywhere that serves static files.
-
-### GitHub Pages
-
-1. Enable GitHub Pages in your repo settings (source: `main` branch, `/client` directory)
-2. Access at `https://YOUR_USERNAME.github.io/peer-term/`
-3. Pass your relay URL: `?relay=wss://your-relay.com`
-
-### Vercel
-
-1. Import the repo on Vercel
-2. Set the root directory to `client/`
-3. Deploy — it's a static file, zero config
-
-### Custom Domain
-
-Point your domain's DNS to GitHub Pages or Vercel, then update the relay URL query param.
-
----
-
-## How Encryption Works
-
-When a client joins a session, both sides generate a fresh **ECDH P-256** key pair. They exchange public keys through the relay, then each independently derives the same **AES-256-GCM** shared secret. Every single message — terminal output, keystrokes, resize events — is encrypted with a fresh random 12-byte IV before being sent. The relay server forwards base64 blobs it cannot decrypt. When the client disconnects and reconnects, a completely new key exchange happens.
+Once deployed, connect to your custom relay using a query parameter:
+`https://YOUR_USERNAME.github.io/peer-term/?relay=wss://your-relay.com`
 
 ---
 
 ## Native Dependencies
 
-PeerTerm uses two native C++ modules:
+PeerTerm relies on two native C++ modules: `node-pty` (for spawning pseudo-terminals) and `node-datachannel` (for WebRTC local P2P).
 
-- **node-pty** — spawns a real pseudo-terminal
-- **node-datachannel** — WebRTC DataChannel for local P2P
-
-These require C++ build tools:
-
-| Platform | Requirement |
-|---|---|
-| Windows | Visual Studio Build Tools with "Desktop development with C++" |
-| macOS | `xcode-select --install` |
-| Linux | `build-essential`, `cmake`, `python3` |
-
-If you see build errors during `npm install`, install the required tools above and run `npm rebuild`.
+These modules require C++ build tools during `npm install`:
+* **Windows:** Visual Studio Build Tools with "Desktop development with C++"
+* **macOS:** `xcode-select --install`
+* **Linux:** `build-essential`, `cmake`, `python3`
 
 ---
 
 ## Project Structure
 
-```
+```text
 peer-term/
-├── relay/
-│   ├── server.js          WebSocket relay & signaling server
-│   ├── Dockerfile         Production Docker image
-│   ├── .dockerignore
-│   └── package.json
-├── host/
-│   ├── bin/
-│   │   └── peer-term.js   CLI entry point (shebang)
-│   ├── src/
-│   │   ├── index.js       Main host agent
-│   │   ├── crypto.js      ECDH + AES-GCM encryption
-│   │   ├── webrtc.js      WebRTC DataChannel (P2P)
-│   │   ├── logger.js      Structured logging
-│   │   ├── ui.js          CLI output formatting
-│   │   └── check-deps.js  Native module checker
-│   ├── dist/              Binary builds (gitignored)
-│   └── package.json
-├── client/
-│   └── index.html         Single-file browser client
-├── .github/
-│   └── workflows/
-│       └── release.yml    Auto-build on version tags
-├── .gitignore
-├── README.md
-└── PRD.md
+├── relay/                 # WebSocket relay & signaling server
+├── host/                  # Node.js CLI host agent
+│   ├── src/               # Encryption, WebRTC, PTY logic
+│   └── bin/               # CLI entry point
+├── client/                # Single-file browser viewer
+└── .github/workflows/     # CI/CD and release actions
 ```
 
 ---
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `8080` | Relay server port |
-| `RELAY_URL` | `ws://localhost:8080` | Relay URL for host agent |
-
----
-
-## What I Learned
-
-- **WebRTC without STUN/TURN is surprisingly useful.** By only using `typ host` ICE candidates, you get zero-latency local P2P without leaking any data to external servers. The tradeoff is it only works on the same LAN — but for that use case, it's perfect.
-
-- **End-to-end encryption in JavaScript is straightforward.** The WebCrypto API (both Node.js and browser) handles ECDH key exchange and AES-GCM natively. No dependencies needed. The hardest part was making sure both sides derive the exact same key.
-
-- **node-pty is the bottleneck for cross-platform distribution.** It's a native C++ addon that requires build tools on every platform. This makes `npx` installs slower and binary packaging harder. There's no pure-JS alternative that gives you a real PTY.
-
-- **A relay server that never sees plaintext is a good design.** The relay only forwards opaque base64 blobs. Even if compromised, it can't read terminal data. This makes the security model simple to reason about.
-
-- **Session codes beat URLs.** A 6-digit numeric code is easier to communicate verbally, works on any device, and expires automatically. Much better UX than sharing a long URL with tokens.
-
----
-
-## License
-
-MIT
