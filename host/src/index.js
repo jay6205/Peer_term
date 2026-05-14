@@ -251,6 +251,7 @@ class Session {
               mode: this.readOnly ? 'Read-Only' : 'Read-Write',
               shell: this.shell,
               startPath: this.startPath,
+              shareUrl: url.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
             });
             resolve(this.code);
             break;
