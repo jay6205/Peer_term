@@ -13,7 +13,7 @@ npm start
 
 # Terminal 2: Start the host agent
 cd peer-term/host
-node index.js
+node bin/peer-term.js
 
 # Browser: Open http://localhost:8080
 ```
@@ -24,7 +24,7 @@ node index.js
 
 ## Test 1: Code Expiry (--expiry flag)
 
-1. Start the host with `node index.js --expiry 30s`
+1. Start the host with `node bin/peer-term.js --expiry 30s`
 2. You should see the code box with **"Expires in: 30 second(s)"**
 3. **Wait 30 seconds** without entering the code in the browser
 4. Now try to enter the code in the browser → You should see: **"Invalid or expired code"**
@@ -36,7 +36,7 @@ Pass if: Code stops working after 30 seconds
 
 ## Test 2: Code Invalidation After First Join
 
-1. Start a fresh host with `node index.js --expiry 5m`
+1. Start a fresh host with `node bin/peer-term.js --expiry 5m`
 2. Note the 6-digit code
 3. Open the browser and enter the code → You connect successfully
 4. Open a **second browser tab** to `http://localhost:8080`
@@ -129,7 +129,7 @@ Pass if: Dimensions match the browser window after resize
 
 ## Test 9: Read-Only Mode
 
-1. Start the host with `node index.js --readonly`
+1. Start the host with `node bin/peer-term.js --readonly`
 2. You should see **(read-only)** in the session code box
 3. Connect from the browser
 4. In the status bar, you should see the **"👁 View Only"** badge
@@ -212,7 +212,7 @@ Pass if: Indicator updates correctly at each stage
 
 ## Test 14: Multiple Sessions Per Host
 
-1. Start the host: `node index.js`
+1. Start the host: `node bin/peer-term.js`
 2. The first session code appears automatically
 3. Type `n` → A **second session** is created with a new code
 4. Type `l` → Both sessions are listed with their status:
@@ -239,7 +239,7 @@ Pass if: Multiple independent sessions work, kill/list/quit all function correct
 
 1. Ensure host and client are on the **same network** (same machine or same WiFi)
 2. Start the relay: `cd relay && npm start`
-3. Start the host: `cd host && node index.js`
+3. Start the host: `cd host && node bin/peer-term.js`
 4. Note the 6-digit code
 5. Open `http://localhost:8080` in the browser and enter the code
 6. Watch the connection indicator in the top-right corner:
@@ -354,7 +354,7 @@ Pass if: Reconnect re-establishes WebRTC, indicator returns to 🟢
 
 ## Test 21: Read-Only Mode with WebRTC
 
-1. Start host with `node index.js --readonly`
+1. Start host with `node bin/peer-term.js --readonly`
 2. Connect on the same LAN → Should show 🟢 Direct (Local)
 3. The **👁 View Only** badge should be visible
 4. Try typing → **Nothing happens** (keystrokes blocked on both WebRTC and relay paths)
@@ -367,7 +367,7 @@ Pass if: Read-only enforcement works identically over WebRTC
 
 ## Test 22: Multiple Sessions with WebRTC
 
-1. Start host: `node index.js`
+1. Start host: `node bin/peer-term.js`
 2. Type `n` → Create a second session
 3. Connect **two browser tabs** to each code
 4. Both sessions should independently negotiate WebRTC

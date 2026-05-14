@@ -16,7 +16,7 @@
   ],
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node bin/peer-term.js",
     "build": "npx @yao-pkg/pkg . --compress GZip",
     "build:linux-x64": "npx @yao-pkg/pkg . --targets node18-linux-x64 --output dist/peer-term-linux-x64",
     "build:linux-arm64": "npx @yao-pkg/pkg . --targets node18-linux-arm64 --output dist/peer-term-linux-arm64",
