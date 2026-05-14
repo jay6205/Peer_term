@@ -11,6 +11,7 @@
  * CLI flags:
  *   --expiry <value>   Session code expiry (e.g. 5m, 30s, 1h). Default: 5m
  *   --readonly         Prevent client keystrokes from reaching the PTY
+ *   --path <dir>       Starting directory for the terminal session
  *   --relay <url>      Custom relay server URL
  *   --verbose          Enable debug-level logging
  *   --help             Show usage information
@@ -49,7 +50,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const argv = minimist(process.argv.slice(2), {
   boolean: ['readonly', 'verbose', 'help', 'version'],
-  string: ['expiry', 'relay'],
+  string: ['expiry', 'relay', 'path'],
   alias: { h: 'help', v: 'version', V: 'verbose' },
   default: { expiry: '5m' },
 });
@@ -75,6 +76,34 @@ if (argv.verbose) {
 const RELAY_URL = argv.relay || process.env.RELAY_URL || 'ws://localhost:8080';
 const HEARTBEAT_INTERVAL_MS = 5000;
 const MAX_MISSED_PINGS = 2;
+
+// ─── Path Resolution ─────────────────────────────────────────────────────────
+
+function expandTilde(inputPath) {
+  if (inputPath.startsWith('~/') || inputPath === '~') {
+    return inputPath.replace('~', process.env.HOME || process.env.USERPROFILE || '.');
+  }
+  return inputPath;
+}
+
+function resolveStartPath(inputPath) {
+  if (!inputPath) return process.env.HOME || process.env.USERPROFILE || process.cwd();
+
+  const resolved = path.resolve(expandTilde(inputPath));
+
+  if (!fs.existsSync(resolved)) {
+    logger.error(`Path does not exist: ${resolved}`);
+    process.exit(1);
+  }
+
+  const stat = fs.statSync(resolved);
+  if (!stat.isDirectory()) {
+    logger.error(`Path is not a directory: ${resolved}`);
+    process.exit(1);
+  }
+
+  return resolved;
+}
 
 // ─── Duration Parsing ────────────────────────────────────────────────────────
 
@@ -127,10 +156,11 @@ function detectShell() {
 // ─── Session Class ───────────────────────────────────────────────────────────
 
 class Session {
-  constructor(shell, expiryMs, readOnly, onDestroy) {
+  constructor(shell, expiryMs, readOnly, startPath, onDestroy) {
     this.shell = shell;
     this.expiryMs = expiryMs;
     this.readOnly = readOnly;
+    this.startPath = startPath;
     this.onDestroy = onDestroy;
 
     this.ws = null;
@@ -190,6 +220,7 @@ class Session {
               expiry: formatDuration(this.expiryMs),
               mode: this.readOnly ? 'Read-Only' : 'Read-Write',
               shell: this.shell,
+              startPath: this.startPath,
             });
             resolve(this.code);
             break;
@@ -370,7 +401,7 @@ class Session {
       name: 'xterm-256color',
       cols,
       rows,
-      cwd: process.env.HOME || process.env.USERPROFILE || '.',
+      cwd: this.startPath,
       env: process.env,
     });
 
@@ -506,15 +537,16 @@ class Session {
 // ─── Session Manager ─────────────────────────────────────────────────────────
 
 class SessionManager {
-  constructor(shell, expiryMs, readOnly) {
+  constructor(shell, expiryMs, readOnly, startPath) {
     this.shell = shell;
     this.expiryMs = expiryMs;
     this.readOnly = readOnly;
+    this.startPath = startPath;
     this.sessions = new Map(); // code → Session
   }
 
   async createSession() {
-    const session = new Session(this.shell, this.expiryMs, this.readOnly, (code) => {
+    const session = new Session(this.shell, this.expiryMs, this.readOnly, this.startPath, (code) => {
       this.sessions.delete(code);
     });
 
@@ -565,16 +597,18 @@ async function main() {
   const shell = detectShell();
   const expiryMs = getExpiry();
   const readOnly = argv.readonly;
+  const startPath = resolveStartPath(argv.path);
 
   // Print startup banner
   printBanner();
   logger.info(`Shell: ${shell}`);
   logger.info(`Relay: ${RELAY_URL}`);
+  logger.info(`Path:  ${startPath}`);
   if (readOnly) logger.info('Mode:  READ-ONLY');
   if (argv.verbose) logger.info('Verbose logging enabled');
   console.log('');
 
-  const manager = new SessionManager(shell, expiryMs, readOnly);
+  const manager = new SessionManager(shell, expiryMs, readOnly, startPath);
 
   // Create first session automatically
   const firstCode = await manager.createSession();

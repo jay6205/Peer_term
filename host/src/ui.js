@@ -44,14 +44,23 @@ export function printBanner() {
  * @param {string} opts.expiry   - Formatted expiry string (e.g. "5 minute(s)")
  * @param {string} opts.mode     - "Read-Write" or "Read-Only"
  * @param {string} opts.shell    - Shell path (e.g. "/bin/zsh")
+ * @param {string} [opts.startPath] - Starting directory for the session
  * @param {string} [opts.shareUrl] - URL to share (e.g. "https://peerterm.dev")
  */
-export function printSessionBox({ code, expiry, mode, shell, shareUrl }) {
+export function printSessionBox({ code, expiry, mode, shell, startPath, shareUrl }) {
   const spacedCode = code.split('').join(' ');
   const url = shareUrl || 'https://peerterm.dev';
 
   // Truncate long shell paths to keep box readable
   const shellDisplay = shell.length > 24 ? '...' + shell.slice(-21) : shell;
+
+  // Truncate long start paths similarly
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  let pathDisplay = startPath || homeDir;
+  if (homeDir && pathDisplay.startsWith(homeDir)) {
+    pathDisplay = '~' + pathDisplay.slice(homeDir.length);
+  }
+  if (pathDisplay.length > 30) pathDisplay = '...' + pathDisplay.slice(-27);
 
   // Calculate dynamic box width based on longest content
   const lines = [
@@ -59,6 +68,7 @@ export function printSessionBox({ code, expiry, mode, shell, shareUrl }) {
     `   Expires in:    ${expiry}`,
     `   Mode:          ${mode}`,
     `   Shell:         ${shellDisplay}`,
+    `   Path:          ${pathDisplay}`,
     `   Share at: ${url}`,
   ];
   const maxLen = Math.max(...lines.map(l => l.length), 35);
@@ -70,11 +80,11 @@ export function printSessionBox({ code, expiry, mode, shell, shareUrl }) {
   console.log('');
   console.log(`  ┌${hr}┐`);
   console.log(`  │${emptyLine}│`);
-  for (const line of lines.slice(0, 4)) {
+  for (const line of lines.slice(0, 5)) {
     console.log(`  │${line.padEnd(innerWidth)}│`);
   }
   console.log(`  │${emptyLine}│`);
-  console.log(`  │${lines[4].padEnd(innerWidth)}│`);
+  console.log(`  │${lines[5].padEnd(innerWidth)}│`);
   console.log(`  │${emptyLine}│`);
   console.log(`  └${hr}┘`);
   console.log('');
@@ -88,6 +98,7 @@ Usage: peer-term [options]
 Options:
   --expiry <time>     Session expiry time (e.g. 5m, 30s, 1h)  [default: 5m]
   --readonly          Share in view-only mode
+  --path <dir>        Starting directory for the terminal session  [default: home]
   --relay <url>       Custom relay server URL
   --verbose           Enable debug logging
   --help              Show this help message
@@ -97,6 +108,7 @@ Examples:
   peer-term                        Start session with defaults
   peer-term --expiry 10m           Custom expiry
   peer-term --readonly             View-only session
+  peer-term --path ~/projects      Start in ~/projects
   peer-term --verbose              Debug logs
   peer-term --relay wss://custom   Use custom relay server
 `;
