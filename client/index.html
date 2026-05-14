@@ -679,14 +679,27 @@
     let iceTimer = null;
     let dcTimer = null;
 
-    // ─── Relay URL (query param override or derived from page origin) ──────
-    const RELAY_URL = (() => {
+    // ─── Relay URLs (Fallback list) ──────────────────────────────────────────
+    const DEFAULT_RELAYS = [
+      'wss://peer-term-relay-production-9b7a.up.railway.app',
+      'wss://peer-term-relay.onrender.com'
+    ];
+
+    function getRelayUrls() {
       const params = new URLSearchParams(window.location.search);
       const custom = params.get('relay');
-      if (custom) return custom;
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      return `${proto}//${location.host}`;
-    })();
+      if (custom) return [custom];
+      
+      // If we are served directly from a relay server (Render/Railway/localhost), use that first!
+      if (location.host.includes('railway') || location.host.includes('render') || location.hostname === 'localhost') {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return [`${proto}//${location.host}`];
+      }
+      
+      // Otherwise (e.g. peerterm.dev or static page), try defaults
+      return DEFAULT_RELAYS;
+    }
+    const RELAY_URLS = getRelayUrls();
 
     // ═════════════════════════════════════════════════════════════════════════
     // ENCRYPTION (ECDH P-256 + AES-256-GCM) — must match host exactly
@@ -835,16 +848,26 @@
       setLoading(true);
       updateConnIndicator('connecting');
 
-      connectToRelay(code);
+      connectToRelay(code, 0);
     }
 
     /**
      * Core WebSocket connection logic. Extracted so reconnect can call it too.
      */
-    function connectToRelay(code) {
-      ws = new WebSocket(RELAY_URL);
+    function connectToRelay(code, urlIndex = 0) {
+      if (urlIndex >= RELAY_URLS.length) {
+        setLoading(false);
+        showError('All relay servers failed to connect');
+        return;
+      }
+
+      const url = RELAY_URLS[urlIndex];
+      ws = new WebSocket(url);
+      
+      let isConnected = false;
 
       ws.onopen = () => {
+        isConnected = true;
         ws.send(JSON.stringify({ type: 'client-join', code }));
       };
 
@@ -1002,15 +1025,23 @@
       };
 
       ws.onerror = () => {
-        if (isReconnecting) {
+        if (!isConnected && urlIndex + 1 < RELAY_URLS.length) {
+          // Silent fallback to next relay
+          connectToRelay(code, urlIndex + 1);
+        } else if (isReconnecting) {
           // Silent — reconnect loop will retry
-        } else {
+        } else if (!isConnected) {
           setLoading(false);
           showError('Could not connect to relay server');
         }
       };
 
       ws.onclose = () => {
+        if (!isConnected && urlIndex + 1 < RELAY_URLS.length) {
+          // Fallback is handled by onerror usually, but we abort here just in case
+          return;
+        }
+
         setLoading(false);
 
         // If we're in a live session and WS drops unexpectedly, start reconnecting

@@ -10,16 +10,33 @@ import net from 'net';
 
 const port = parseInt(process.argv[2], 10);
 
-if (!port) {
-  console.error('Usage: session-viewer.js <port>');
+if (!port || isNaN(port) || port < 1 || port > 65535) {
+  console.error('Usage: session-viewer.js <port>\nPort must be a number between 1 and 65535.');
   process.exit(1);
 }
 
+function cleanup(code, msg) {
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
+  if (msg) {
+    if (code !== 0) console.error(msg);
+    else console.log(msg);
+  }
+  process.exit(code);
+}
+
+process.on('SIGINT', () => cleanup(0, '\n  Session terminated by signal.'));
+process.on('SIGTERM', () => cleanup(0, '\n  Session terminated by signal.'));
+
+function formatResizeMessage(cols, rows) {
+  return `\x00${JSON.stringify({ type: 'resize', cols, rows })}\n`;
+}
+
 const client = net.connect({ port, host: '127.0.0.1' }, () => {
+  client.setTimeout(0); // Clear timeout once connected
   // Send initial terminal size
-  const cols = process.stdout.columns || 80;
-  const rows = process.stdout.rows || 24;
-  client.write(`\x00${JSON.stringify({ type: 'resize', cols, rows })}\n`);
+  const cols = process.stdout.isTTY ? (process.stdout.columns || 80) : 80;
+  const rows = process.stdout.isTTY ? (process.stdout.rows || 24) : 24;
+  client.write(formatResizeMessage(cols, rows));
 
   // Enter raw mode
   if (process.stdin.isTTY) {
@@ -42,19 +59,21 @@ const client = net.connect({ port, host: '127.0.0.1' }, () => {
     process.stdout.on('resize', () => {
       const cols = process.stdout.columns || 80;
       const rows = process.stdout.rows || 24;
-      client.write(`\x00${JSON.stringify({ type: 'resize', cols, rows })}\n`);
+      client.write(formatResizeMessage(cols, rows));
     });
   }
 });
+client.setTimeout(5000);
+
+client.on('timeout', () => {
+  client.destroy();
+  cleanup(1, '  Connection timed out.');
+});
 
 client.on('close', () => {
-  if (process.stdin.isTTY) process.stdin.setRawMode(false);
-  console.log('\n  Session ended.');
-  process.exit(0);
+  cleanup(0, '\n  Session ended.');
 });
 
 client.on('error', (err) => {
-  if (process.stdin.isTTY) process.stdin.setRawMode(false);
-  console.error(`  Connection failed: ${err.message}`);
-  process.exit(1);
+  cleanup(1, `  Connection failed: ${err.message}`);
 });

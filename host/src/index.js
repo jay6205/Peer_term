@@ -75,7 +75,13 @@ if (argv.verbose) {
 }
 
 // ─── Configuration ───────────────────────────────────────────────────────────
-const RELAY_URL = argv.relay || process.env.RELAY_URL || 'ws://localhost:8080';
+const DEFAULT_RELAYS = [
+  'wss://peer-term-relay.onrender.com',
+  'wss://peer-term-relay-production-9b7a.up.railway.app'
+];
+const RELAY_URLS = argv.relay 
+  ? argv.relay.split(',').map(s => s.trim()) 
+  : (process.env.RELAY_URL ? process.env.RELAY_URL.split(',').map(s => s.trim()) : DEFAULT_RELAYS);
 const HEARTBEAT_INTERVAL_MS = 5000;
 const MAX_MISSED_PINGS = 2;
 
@@ -198,10 +204,28 @@ class Session {
 
   // ─── Start the session ──────────────────────────────────────────────
   async start() {
+    for (let i = 0; i < RELAY_URLS.length; i++) {
+      const url = RELAY_URLS[i];
+      try {
+        const code = await this._tryConnect(url);
+        return code;
+      } catch (err) {
+        if (i === RELAY_URLS.length - 1) {
+          throw new Error(`All relay servers failed. Last error: ${err.message}`);
+        }
+        logger.warn(`Failed to connect to ${url}: ${err.message}. Trying next relay...`);
+      }
+    }
+  }
+
+  async _tryConnect(url) {
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(RELAY_URL);
+      this.ws = new WebSocket(url);
+      
+      let isConnected = false;
 
       this.ws.on('open', () => {
+        isConnected = true;
         this.ws.send(JSON.stringify({
           type: 'host-register',
           expiry: this.expiryMs,
@@ -337,15 +361,16 @@ class Session {
       });
 
       this.ws.on('close', () => {
-        if (!this.destroyed) {
+        if (!isConnected) {
+          reject(new Error('WebSocket closed before connection was established'));
+        } else if (!this.destroyed) {
           this.log('Connection to relay lost.');
           this.destroy();
         }
       });
 
       this.ws.on('error', (err) => {
-        if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
-          logger.error(`Relay not reachable at ${RELAY_URL}`, err);
+        if (!isConnected) {
           reject(err);
         } else {
           this.log(`WS error: ${err.message}`);
@@ -453,20 +478,44 @@ class Session {
       this.viewerSocket = socket;
       this.log('Host viewer connected.');
 
+      let recvBuf = '';
+
       socket.on('data', (data) => {
-        // Control messages (resize) start with \x00
-        if (data[0] === 0x00) {
-          try {
-            const msg = JSON.parse(data.slice(1).toString().trim());
-            if (msg.type === 'resize' && msg.cols && msg.rows && this.ptyProcess) {
-              this.ptyProcess.resize(msg.cols, msg.rows);
-              this._sendResize(msg.cols, msg.rows);
-              this.logDebug(`Viewer resized to ${msg.cols}x${msg.rows}`);
+        const chunk = data.toString();
+        
+        // Control messages start with \x00{
+        if (recvBuf.length > 0 || chunk.startsWith('\x00{')) {
+          recvBuf += chunk;
+          let newlineIdx;
+          while ((newlineIdx = recvBuf.indexOf('\n')) !== -1) {
+            const line = recvBuf.slice(0, newlineIdx).trim();
+            recvBuf = recvBuf.slice(newlineIdx + 1);
+            
+            if (line.startsWith('\x00')) {
+              try {
+                const msg = JSON.parse(line.slice(1));
+                if (msg.type === 'resize' && 
+                    Number.isInteger(msg.cols) && msg.cols > 0 && 
+                    Number.isInteger(msg.rows) && msg.rows > 0 && 
+                    this.ptyProcess) {
+                  this.ptyProcess.resize(msg.cols, msg.rows);
+                  this._sendResize(msg.cols, msg.rows);
+                  this.logDebug(`Viewer resized to ${msg.cols}x${msg.rows}`);
+                }
+              } catch {}
+            } else if (this.ptyProcess) {
+               this.ptyProcess.write(line + '\n');
             }
-          } catch {}
+          }
+          // Flush any non-control data left in the buffer
+          if (recvBuf.length > 0 && !recvBuf.startsWith('\x00')) {
+             if (this.ptyProcess) this.ptyProcess.write(recvBuf);
+             recvBuf = '';
+          }
           return;
         }
-        // Host keystrokes → PTY (host always has access, readOnly only blocks web client)
+
+        // Host keystrokes → PTY (host always has access)
         if (this.ptyProcess) {
           this.ptyProcess.write(data);
         }
@@ -487,9 +536,19 @@ class Session {
       this.logDebug(`Viewer server on port ${port}`);
       this._openViewerTerminal(port);
     });
+
+    this.viewerServer.on('error', (err) => {
+      this.log(`Viewer server error: ${err.message}`);
+      this.viewerServer = null;
+    });
   }
 
   _openViewerTerminal(port) {
+    if (!/^[A-Za-z0-9_-]+$/.test(this.code)) {
+      this.log('Invalid session code format. Aborting viewer terminal.');
+      return;
+    }
+
     const viewerScript = path.join(__dirname, 'session-viewer.js');
     const platform = os.platform();
 
@@ -688,7 +747,7 @@ async function main() {
   // Print startup banner
   printBanner();
   logger.info(`Shell: ${shell}`);
-  logger.info(`Relay: ${RELAY_URL}`);
+  logger.info(`Relays: ${RELAY_URLS.join(', ')}`);
   logger.info(`Path:  ${startPath}`);
   if (readOnly) logger.info('Mode:  READ-ONLY');
   if (argv.verbose) logger.info('Verbose logging enabled');
