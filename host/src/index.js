@@ -22,7 +22,9 @@ import * as dotenv from 'dotenv';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
+import net from 'net';
 import readline from 'readline';
+import { exec as cpExec } from 'child_process';
 import { fileURLToPath } from 'url';
 import WebSocket from 'ws';
 import pty from 'node-pty';
@@ -178,6 +180,10 @@ class Session {
     // Phase 4: WebRTC state
     this.webrtc = null;
     this.useDataChannel = false;
+
+    // Local TCP viewer (new terminal window)
+    this.viewerServer = null;
+    this.viewerSocket = null;
   }
 
   log(msg) {
@@ -406,6 +412,11 @@ class Session {
     });
 
     this.ptyProcess.onData(async (data) => {
+      // Mirror PTY output to local viewer terminal
+      if (this.viewerSocket) {
+        try { this.viewerSocket.write(data); } catch {}
+      }
+
       if (!this.sharedKey) return;
       try {
         const payload = await encrypt(this.sharedKey, data);
@@ -425,6 +436,72 @@ class Session {
       }
       this.destroy();
     });
+
+    // Open a local viewer terminal for the host
+    this._startViewerServer();
+  }
+
+  // ─── Local TCP viewer for host terminal ─────────────────────────────
+  _startViewerServer() {
+    this.viewerServer = net.createServer((socket) => {
+      // Close any existing viewer connection before accepting a new one
+      if (this.viewerSocket) {
+        this.logDebug('Replacing existing viewer connection.');
+        this.viewerSocket.removeAllListeners();
+        try { this.viewerSocket.destroy(); } catch {}
+      }
+      this.viewerSocket = socket;
+      this.log('Host viewer connected.');
+
+      socket.on('data', (data) => {
+        // Control messages (resize) start with \x00
+        if (data[0] === 0x00) {
+          try {
+            const msg = JSON.parse(data.slice(1).toString().trim());
+            if (msg.type === 'resize' && msg.cols && msg.rows && this.ptyProcess) {
+              this.ptyProcess.resize(msg.cols, msg.rows);
+              this._sendResize(msg.cols, msg.rows);
+              this.logDebug(`Viewer resized to ${msg.cols}x${msg.rows}`);
+            }
+          } catch {}
+          return;
+        }
+        // Host keystrokes → PTY (host always has access, readOnly only blocks web client)
+        if (this.ptyProcess) {
+          this.ptyProcess.write(data);
+        }
+      });
+
+      socket.on('close', () => {
+        this.viewerSocket = null;
+        this.logDebug('Host viewer disconnected.');
+      });
+
+      socket.on('error', () => {
+        this.viewerSocket = null;
+      });
+    });
+
+    this.viewerServer.listen(0, '127.0.0.1', () => {
+      const port = this.viewerServer.address().port;
+      this.logDebug(`Viewer server on port ${port}`);
+      this._openViewerTerminal(port);
+    });
+  }
+
+  _openViewerTerminal(port) {
+    const viewerScript = path.join(__dirname, 'session-viewer.js');
+    const platform = os.platform();
+
+    if (platform === 'win32') {
+      cpExec(`start "PeerTerm - ${this.code}" cmd /c node "${viewerScript}" ${port} ${this.code}`);
+    } else if (platform === 'darwin') {
+      cpExec(`osascript -e 'tell app "Terminal" to do script "node \"${viewerScript}\" ${port} ${this.code}"'`);
+    } else {
+      // Linux: try common terminal emulators
+      cpExec(`x-terminal-emulator -e "node '${viewerScript}' ${port} ${this.code}" 2>/dev/null || gnome-terminal -- node "${viewerScript}" ${port} ${this.code} 2>/dev/null || xterm -e "node '${viewerScript}' ${port} ${this.code}"`);
+    }
+    this.log('Opening terminal viewer...');
   }
 
   // ─── Destroy ────────────────────────────────────────────────────────
@@ -432,6 +509,15 @@ class Session {
     if (this.destroyed) return;
     this.destroyed = true;
     this.stopHeartbeat();
+    // Clean up viewer
+    if (this.viewerSocket) {
+      try { this.viewerSocket.destroy(); } catch {}
+      this.viewerSocket = null;
+    }
+    if (this.viewerServer) {
+      try { this.viewerServer.close(); } catch {}
+      this.viewerServer = null;
+    }
     // Phase 4: Clean up WebRTC
     this._cleanupWebRTC();
     if (this.ptyProcess) {

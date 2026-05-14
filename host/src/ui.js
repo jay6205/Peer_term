@@ -63,15 +63,16 @@ export function printSessionBox({ code, expiry, mode, shell, startPath, shareUrl
   if (pathDisplay.length > 30) pathDisplay = '...' + pathDisplay.slice(-27);
 
   // Calculate dynamic box width based on longest content
-  const lines = [
+  const infoLines = [
     `   Session Code:  ${spacedCode}`,
     `   Expires in:    ${expiry}`,
     `   Mode:          ${mode}`,
     `   Shell:         ${shellDisplay}`,
     `   Path:          ${pathDisplay}`,
-    `   Share at: ${url}`,
   ];
-  const maxLen = Math.max(...lines.map(l => l.length), 35);
+  const shareLine = `   Share at: ${url}`;
+  const allLines = [...infoLines, shareLine];
+  const maxLen = Math.max(...allLines.map(l => l.length), 35);
   const innerWidth = maxLen + 3; // padding on right
 
   const hr = '─'.repeat(innerWidth);
@@ -80,11 +81,11 @@ export function printSessionBox({ code, expiry, mode, shell, startPath, shareUrl
   console.log('');
   console.log(`  ┌${hr}┐`);
   console.log(`  │${emptyLine}│`);
-  for (const line of lines.slice(0, 5)) {
+  for (const line of infoLines) {
     console.log(`  │${line.padEnd(innerWidth)}│`);
   }
   console.log(`  │${emptyLine}│`);
-  console.log(`  │${lines[5].padEnd(innerWidth)}│`);
+  console.log(`  │${shareLine.padEnd(innerWidth)}│`);
   console.log(`  │${emptyLine}│`);
   console.log(`  └${hr}┘`);
   console.log('');
