@@ -81,7 +81,7 @@ const MAX_MISSED_PINGS = 2;
 
 function expandTilde(inputPath) {
   if (inputPath.startsWith('~/') || inputPath === '~') {
-    return inputPath.replace('~', process.env.HOME || process.env.USERPROFILE || '.');
+    return inputPath.replace(/^~/, process.env.HOME || process.env.USERPROFILE || '.');
   }
   return inputPath;
 }

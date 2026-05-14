@@ -12,7 +12,7 @@ npx peer-term
 
 This will start a terminal sharing session and give you a 6-digit code.
 
-Share this code with your peer. They can view your terminal by going to the PeerTerm web client and entering the code.
+Share this code with your peer. They can view your terminal by going to https://peer-term-relay-production-9b7a.up.railway.app (or the actual URL) and entering the code.
 
 ## Global Installation
 
