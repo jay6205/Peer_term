@@ -36,17 +36,24 @@ peer-term --path ~/projects            # starts at ~/projects
 peer-term --path .                     # starts in current directory
 peer-term --readonly                   # view-only session
 peer-term --expiry 10m                 # custom expiry time
+peer-term --relay wss://custom         # use a custom relay server
 peer-term --verbose                    # enable debug logging
 ```
 
 ## Features
 
 - **No Config**: Works instantly. No port forwarding or firewall configuration needed.
-- **End-to-End Encrypted**: Terminal data is encrypted locally using AES-GCM before being sent.
-- **WebRTC P2P**: Creates a direct Peer-to-Peer connection when possible for minimal latency.
-- **Read-Only Mode**: Guests can view your terminal but cannot type commands, ensuring your system remains secure.
-- **Custom Start Path**: Set the starting directory with `--path` so guests land right where you want them.
+- **End-to-End Encrypted**: Terminal data is encrypted locally using AES-256-GCM with ECDH P-256 key exchange. The relay never sees plaintext.
+- **WebRTC P2P**: Creates a direct Peer-to-Peer connection on the same LAN for zero-latency, relay-free sessions.
+- **Read-Only Mode**: Guests can view your terminal but cannot type commands.
+- **Custom Start Path**: Set the starting directory with `--path`.
+- **Resilient Connections**: Both host and client get a 2-minute rejoin window if their IP changes or connection drops. PTY state is fully preserved — no session restart needed.
+- **Multi-Session**: Manage multiple simultaneous sessions with the interactive CLI menu.
 
-## License
+## How It Works
 
-MIT
+1. **Host** registers a session on the relay and gets a 6-digit code
+2. **Client** opens the web UI and enters the code
+3. Both sides perform an **ECDH key exchange** to derive a shared AES-256-GCM secret
+4. All terminal I/O is encrypted end-to-end — the relay only forwards opaque blobs
+5. If both peers are on the same LAN, a **WebRTC DataChannel** is established to bypass the relay entirely
