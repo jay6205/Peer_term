@@ -661,6 +661,8 @@
     let reconnectInterval = null;
     let isReconnecting = false;
     let sessionEnded = false;
+    let hostWaitingForReconnect = false;
+    let previousIndicatorState = 'relay';
     const HEARTBEAT_MS = 5000;
     const MAX_MISSED = 2;
     const RECONNECT_MS = 5000;
@@ -984,14 +986,42 @@
           // ─── Session expired (rejoin window passed or code expired) ───
           case 'session-expired':
             sessionEnded = true;
+            hostWaitingForReconnect = false;
             stopHeartbeat();
             stopReconnecting();
             if (terminal) {
-              terminal.write('\r\n\x1b[1;31m Session has ended.\x1b[0m\r\n');
+              const expMsg = msg.msg || 'Session has ended.';
+              terminal.write(`\r\n\x1b[1;31m ${expMsg}\x1b[0m\r\n`);
               updateStatusDot('red');
               updateConnIndicator('lost');
             }
             setTimeout(() => resetToConnectScreen(), 3000);
+            break;
+
+          // ─── Host lost connection, waiting for host to reconnect ───────
+          case 'host-reconnecting':
+            hostWaitingForReconnect = true;
+            stopHeartbeat();
+            // Phase 4: Clean up WebRTC while host is disconnected
+            cleanupWebRTC();
+            // Save the current indicator state so we can restore it
+            previousIndicatorState = useDataChannel ? 'direct' : 'relay';
+            if (terminal) {
+              terminal.write('\r\n\x1b[1;33m Host lost connection. Waiting for host to reconnect...\x1b[0m\r\n');
+              updateStatusDot('yellow');
+              updateConnIndicator('reconnecting');
+            }
+            break;
+
+          // ─── Host reconnected after IP change/drop ────────────────────
+          case 'host-reconnected':
+            hostWaitingForReconnect = false;
+            if (terminal) {
+              terminal.write('\r\n\x1b[1;32m Host reconnected. Resuming session.\x1b[0m\r\n');
+              updateStatusDot('green');
+              updateConnIndicator(previousIndicatorState);
+            }
+            // Heartbeat will resume after the next key-exchange cycle
             break;
 
           // ─── Host disconnected ────────────────────────────────────────
@@ -1136,7 +1166,7 @@
 
       // Handle terminal input → encrypt → send to host
       terminal.onData(async (data) => {
-        if (!sharedKey || isReadOnly) return;
+        if (!sharedKey || isReadOnly || hostWaitingForReconnect) return;
         try {
           const payload = await encrypt(sharedKey, data);
           // Phase 4: Route through DataChannel if active, else relay
@@ -1341,7 +1371,7 @@
     }
 
     async function sendKeystroke(data) {
-      if (!sharedKey || isReadOnly) return;
+      if (!sharedKey || isReadOnly || hostWaitingForReconnect) return;
       try {
         const payload = await encrypt(sharedKey, data);
         // Phase 4: Route through DataChannel if active, else relay
@@ -1732,6 +1762,7 @@
       sharedKey = null;
       sessionCode = '';
       isReadOnly = false;
+      hostWaitingForReconnect = false;
       currentFontSize = 14;
 
       // Reset UI

@@ -35,6 +35,7 @@ const RATE_LIMIT_BLOCK_MS = 60 * 1000;             // 60 seconds
 // session shape: {
 //   hostSocket, clientSocket, expiresAt,
 //   clientJoined, clientDisconnected, rejoinDeadline,
+//   hostDisconnected, hostRejoinDeadline,
 //   hostLastSeen, clientLastSeen
 // }
 const sessions = new Map();
@@ -115,6 +116,7 @@ function resetRateLimit(ip) {
  * Runs every 30 seconds to clean up:
  * 1. Expired codes (no client joined before expiry)
  * 2. Expired rejoin windows (client didn't come back in 2 minutes)
+ * 3. Host rejoin window expired (host didn't come back in 2 minutes)
  */
 setInterval(() => {
   const now = Date.now();
@@ -133,12 +135,24 @@ setInterval(() => {
 
     // 2. Rejoin window expired — client didn't come back
     if (session.clientDisconnected && session.rejoinDeadline && now > session.rejoinDeadline) {
-      console.log(`[cleanup] Rejoin window expired for session ${code}`);
+      console.log(`[cleanup] Client rejoin window expired for session ${code}`);
       if (session.hostSocket && session.hostSocket.readyState === 1) {
         session.hostSocket.send(JSON.stringify({ type: 'session-expired' }));
       }
       socketToCode.delete(session.hostSocket);
       if (session.clientSocket) socketToCode.delete(session.clientSocket);
+      sessions.delete(code);
+      continue;
+    }
+
+    // 3. Host rejoin window expired — host didn't come back
+    if (session.hostDisconnected && session.hostRejoinDeadline && now > session.hostRejoinDeadline) {
+      console.log(`[cleanup] Host rejoin window expired for session ${code}`);
+      if (session.clientSocket && session.clientSocket.readyState === 1) {
+        session.clientSocket.send(JSON.stringify({ type: 'session-expired', msg: 'Host did not reconnect in time.' }));
+      }
+      if (session.clientSocket) socketToCode.delete(session.clientSocket);
+      socketToCode.delete(session.hostSocket);
       sessions.delete(code);
       continue;
     }
@@ -253,6 +267,8 @@ wss.on('connection', (ws, req) => {
           clientJoined: false,
           clientDisconnected: false,
           rejoinDeadline: null,
+          hostDisconnected: false,
+          hostRejoinDeadline: null,
           hostLastSeen: Date.now(),
           clientLastSeen: null,
           readonly,
@@ -360,19 +376,19 @@ wss.on('connection', (ws, req) => {
         break;
       }
 
-      // ─── Session ended (host PTY exited normally) ────────────────────
+      // ─── Session ended (host PTY exited or host intentionally quit) ──
       case 'session-ended': {
         const code = socketToCode.get(ws);
         if (!code) return;
         const session = sessions.get(code);
         if (!session) return;
 
-        // Forward to client
+        // Forward to client — this is an intentional end, no rejoin window
         if (session.clientSocket && session.clientSocket.readyState === 1) {
           session.clientSocket.send(JSON.stringify({ type: 'session-ended' }));
         }
 
-        // Clean up the session
+        // Clean up the session immediately — host chose to end it
         console.log(`[session] Host PTY exited, session ended: ${code}`);
         if (session.clientSocket) socketToCode.delete(session.clientSocket);
         socketToCode.delete(session.hostSocket);
@@ -410,6 +426,45 @@ wss.on('connection', (ws, req) => {
         break;
       }
 
+      // ─── Host rejoin (host reconnecting after IP change/drop) ────────
+      case 'host-rejoin': {
+        const { code } = msg;
+        const session = sessions.get(code);
+
+        if (!session) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Session no longer exists.' }));
+          return;
+        }
+
+        if (session.hostRejoinDeadline && Date.now() > session.hostRejoinDeadline) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Rejoin window expired.' }));
+          return;
+        }
+
+        if (!session.hostDisconnected) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Host is already connected.' }));
+          return;
+        }
+
+        // Valid rejoin — reassign host socket
+        socketToCode.delete(session.hostSocket);
+        session.hostSocket = ws;
+        session.hostDisconnected = false;
+        session.hostRejoinDeadline = null;
+        session.hostLastSeen = Date.now();
+        socketToCode.set(ws, code);
+
+        // Notify client that host is back
+        if (session.clientSocket && session.clientSocket.readyState === 1) {
+          session.clientSocket.send(JSON.stringify({ type: 'host-reconnected' }));
+        }
+
+        // Confirm to host
+        ws.send(JSON.stringify({ type: 'rejoined', code }));
+        console.log(`[session] Host rejoined session: ${code}`);
+        break;
+      }
+
       default:
         ws.send(JSON.stringify({ type: 'error', msg: `Unknown message type: ${msg.type}` }));
     }
@@ -426,13 +481,18 @@ wss.on('connection', (ws, req) => {
     // ─── Host disconnected ───────────────────────────────────────────
     if (ws === session.hostSocket) {
       console.log(`[session] Host disconnected from session: ${code}`);
-      // Host disconnect always destroys the session immediately
-      if (session.clientSocket && session.clientSocket.readyState === 1) {
-        session.clientSocket.send(JSON.stringify({ type: 'peer-disconnected', reason: 'host-ended' }));
-      }
-      if (session.clientSocket) socketToCode.delete(session.clientSocket);
+
+      // Don't delete the session — open a 2-minute host rejoin window
+      session.hostDisconnected = true;
+      session.hostRejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
       socketToCode.delete(ws);
-      sessions.delete(code);
+
+      // Notify client that host lost connection (but session stays alive)
+      if (session.clientSocket && session.clientSocket.readyState === 1) {
+        session.clientSocket.send(JSON.stringify({ type: 'host-reconnecting' }));
+      }
+
+      console.log(`[session] Host rejoin window open for session ${code} (2 minutes)`);
 
     // ─── Client disconnected ─────────────────────────────────────────
     } else if (ws === session.clientSocket) {
@@ -449,7 +509,7 @@ wss.on('connection', (ws, req) => {
         session.hostSocket.send(JSON.stringify({ type: 'peer-disconnected' }));
       }
 
-      console.log(`[session] Rejoin window open for session ${code} (2 minutes)`);
+      console.log(`[session] Client rejoin window open for session ${code} (2 minutes)`);
     }
   });
 

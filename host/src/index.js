@@ -181,7 +181,10 @@ class Session {
     this.isClientConnected = false;
     this.awaitingRejoin = false;
     this.destroyed = false;
+    this.intentionalClose = false;
+    this.reconnectTimer = null;
     this.createdAt = Date.now();
+    this.relayUrl = null;  // Track which relay URL we connected to
 
     // Phase 4: WebRTC state
     this.webrtc = null;
@@ -221,6 +224,7 @@ class Session {
   async _tryConnect(url) {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(url);
+      this.relayUrl = url;
       
       let isConnected = false;
 
@@ -354,6 +358,15 @@ class Session {
             break;
           }
 
+          case 'rejoined': {
+            this.log(`\u2705 Reconnected. Session restored. (code: ${msg.code})`);
+            // Restart heartbeat if client is connected
+            if (this.isClientConnected) {
+              this.startHeartbeat();
+            }
+            break;
+          }
+
           case 'error': {
             this.log(`Error: ${msg.msg}`);
             break;
@@ -364,9 +377,16 @@ class Session {
       this.ws.on('close', () => {
         if (!isConnected) {
           reject(new Error('WebSocket closed before connection was established'));
-        } else if (!this.destroyed) {
-          this.log('Connection to relay lost.');
+        } else if (this.destroyed) {
+          // Already destroyed, nothing to do
+        } else if (this.intentionalClose) {
+          this.log('Connection to relay closed (intentional).');
           this.destroy();
+        } else {
+          // Unexpected disconnect — start reconnect loop
+          this.log('Connection to relay lost. Starting reconnect...');
+          this.stopHeartbeat();
+          this._startReconnecting();
         }
       });
 
@@ -564,11 +584,227 @@ class Session {
     this.log('Opening terminal viewer...');
   }
 
+  // ─── Host Reconnect Logic ───────────────────────────────────────────
+  _startReconnecting() {
+    if (this.destroyed || this.intentionalClose) return;
+
+    let attempts = 0;
+    const maxAttempts = 24; // 24 × 5s = 2 minutes
+
+    this.reconnectTimer = setInterval(() => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        this.log('❌ Could not reconnect. Session expired.');
+        this._stopReconnecting();
+        this.destroy();
+        return;
+      }
+
+      this.log(`⏳ Reconnect attempt ${attempts}/${maxAttempts}...`);
+
+      try {
+        const newWs = new WebSocket(this.relayUrl);
+
+        newWs.on('open', () => {
+          newWs.send(JSON.stringify({ type: 'host-rejoin', code: this.code }));
+        });
+
+        newWs.on('message', (raw) => {
+          let msg;
+          try {
+            msg = JSON.parse(raw.toString());
+          } catch {
+            return;
+          }
+
+          if (msg.type === 'rejoined') {
+            // Success — replace the old ws with this new one
+            this.ws = newWs;
+            this._stopReconnecting();
+            this.log(`✅ Reconnected. Session restored.`);
+
+            // Re-attach the full message handler by wiring up events
+            this._attachWsHandlers(newWs);
+
+            // Restart heartbeat if client is connected
+            if (this.isClientConnected) {
+              this.startHeartbeat();
+            }
+          } else if (msg.type === 'error') {
+            this.log(`Rejoin failed: ${msg.msg}`);
+            this._stopReconnecting();
+            this.destroy();
+            try { newWs.close(); } catch {}
+          }
+        });
+
+        newWs.on('error', () => {
+          // Connection failed, next retry in 5s
+          try { newWs.close(); } catch {}
+        });
+
+        newWs.on('close', () => {
+          // If we haven't adopted this ws, nothing to do — retry will fire
+        });
+      } catch (e) {
+        // Connection failed, next retry in 5s
+      }
+    }, 5000);
+  }
+
+  _stopReconnecting() {
+    if (this.reconnectTimer) {
+      clearInterval(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  /**
+   * Re-attach message/close/error handlers to a new WebSocket after rejoin.
+   * This mirrors the handlers set in _tryConnect but skips the initial registration flow.
+   */
+  _attachWsHandlers(newWs) {
+    newWs.on('message', async (raw) => {
+      let msg;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        this.log('Invalid message from relay');
+        return;
+      }
+
+      switch (msg.type) {
+        case 'client-connected': {
+          if (this.awaitingRejoin) {
+            this.log('Client reconnected.');
+            this.awaitingRejoin = false;
+          } else {
+            this.log('Client connected! Starting key exchange...');
+          }
+          this.isClientConnected = true;
+          this.missedPings = 0;
+
+          this.keyPair = await generateKeyPair();
+          const pubKeyBase64 = await exportPublicKey(this.keyPair.publicKey);
+          this.ws.send(JSON.stringify({ type: 'key-exchange', publicKey: pubKeyBase64 }));
+          break;
+        }
+
+        case 'key-exchange': {
+          if (!this.keyPair) return;
+          this.logDebug('Deriving shared secret...');
+
+          const peerPublicKey = await importPublicKey(msg.publicKey);
+          this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
+          this.log('Encrypted tunnel active');
+
+          this.startHeartbeat();
+
+          if (!this.ptyProcess) {
+            this.spawnTerminal();
+          }
+
+          this._initiateWebRTC();
+          break;
+        }
+
+        case 'signal': {
+          if (this.webrtc && this.sharedKey) {
+            try {
+              const plaintext = await decrypt(this.sharedKey, msg.payload);
+              this.webrtc.handleSignal(JSON.parse(plaintext));
+            } catch (err) {
+              this.logDebug(`[WebRTC] Signal decryption failed: ${err.message}`);
+            }
+          }
+          break;
+        }
+
+        case 'heartbeat': {
+          this.missedPings = 0;
+          break;
+        }
+
+        case 'data': {
+          if (!this.sharedKey || !this.ptyProcess) return;
+          try {
+            const plaintext = await decrypt(this.sharedKey, msg.payload);
+
+            if (msg.meta === 'resize') {
+              try {
+                const resizeData = JSON.parse(plaintext);
+                if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
+                  this.ptyProcess.resize(resizeData.cols, resizeData.rows);
+                  this.logDebug(`Terminal resized to ${resizeData.cols}x${resizeData.rows}`);
+                }
+              } catch {}
+              return;
+            }
+
+            if (this.readOnly) return;
+            this.ptyProcess.write(plaintext);
+          } catch (err) {
+            this.log(`Decryption failed: ${err.message}`);
+          }
+          break;
+        }
+
+        case 'peer-disconnected': {
+          this.log('Client disconnected. Rejoin window: 2 minutes.');
+          this.isClientConnected = false;
+          this.awaitingRejoin = true;
+          this.sharedKey = null;
+          this.keyPair = null;
+          this.stopHeartbeat();
+          this._cleanupWebRTC();
+          break;
+        }
+
+        case 'session-expired': {
+          this.log('Rejoin window expired. Session ended.');
+          this.destroy();
+          break;
+        }
+
+        case 'rejoined': {
+          this.log(`✅ Reconnected. Session restored. (code: ${msg.code})`);
+          if (this.isClientConnected) {
+            this.startHeartbeat();
+          }
+          break;
+        }
+
+        case 'error': {
+          this.log(`Error: ${msg.msg}`);
+          break;
+        }
+      }
+    });
+
+    newWs.on('close', () => {
+      if (this.destroyed) return;
+      if (this.intentionalClose) {
+        this.log('Connection to relay closed (intentional).');
+        this.destroy();
+      } else {
+        this.log('Connection to relay lost. Starting reconnect...');
+        this.stopHeartbeat();
+        this._startReconnecting();
+      }
+    });
+
+    newWs.on('error', (err) => {
+      this.log(`WS error: ${err.message}`);
+    });
+  }
+
   // ─── Destroy ────────────────────────────────────────────────────────
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.intentionalClose = true;
     this.stopHeartbeat();
+    this._stopReconnecting();
     // Clean up viewer
     if (this.viewerSocket) {
       try { this.viewerSocket.destroy(); } catch {}
@@ -585,6 +821,8 @@ class Session {
       this.ptyProcess = null;
     }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      // Send session-ended so relay knows this is intentional and destroys session immediately
+      try { this.ws.send(JSON.stringify({ type: 'session-ended' })); } catch {}
       this.ws.close();
     }
     this.log('Session ended.');
