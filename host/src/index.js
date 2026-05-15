@@ -594,13 +594,13 @@ class Session {
     this.reconnectTimer = setInterval(() => {
       attempts++;
       if (attempts > maxAttempts) {
-        this.log('❌ Could not reconnect. Session expired.');
+        this.log('Could not reconnect. Session expired.');
         this._stopReconnecting();
         this.destroy();
         return;
       }
 
-      this.log(`⏳ Reconnect attempt ${attempts}/${maxAttempts}...`);
+      this.log(`Reconnect attempt ${attempts}/${maxAttempts}...`);
 
       // Close any in-flight reconnect socket from the previous tick
       if (this._pendingReconnectWs) {
@@ -629,7 +629,7 @@ class Session {
             this._pendingReconnectWs = null;
             this.ws = newWs;
             this._stopReconnecting();
-            this.log(`✅ Reconnected. Session restored.`);
+            this.log(`Reconnected. Session restored.`);
 
             // Re-attach the full message handler by wiring up events
             this._attachWsHandlers(newWs);
@@ -782,7 +782,7 @@ class Session {
         }
 
         case 'rejoined': {
-          this.log(`✅ Reconnected. Session restored. (code: ${msg.code})`);
+          this.log(`Reconnected. Session restored. (code: ${msg.code})`);
           if (this.isClientConnected) {
             this.startHeartbeat();
           }
