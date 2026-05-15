@@ -1,6 +1,6 @@
 {
   "name": "peer-term",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Share your terminal instantly using a 6-digit code. Encrypted. No config.",
   "main": "src/index.js",
   "bin": {
