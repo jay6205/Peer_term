@@ -602,8 +602,15 @@ class Session {
 
       this.log(`⏳ Reconnect attempt ${attempts}/${maxAttempts}...`);
 
+      // Close any in-flight reconnect socket from the previous tick
+      if (this._pendingReconnectWs) {
+        try { this._pendingReconnectWs.removeAllListeners(); this._pendingReconnectWs.close(); } catch {}
+        this._pendingReconnectWs = null;
+      }
+
       try {
         const newWs = new WebSocket(this.relayUrl);
+        this._pendingReconnectWs = newWs;
 
         newWs.on('open', () => {
           newWs.send(JSON.stringify({ type: 'host-rejoin', code: this.code }));
@@ -619,6 +626,7 @@ class Session {
 
           if (msg.type === 'rejoined') {
             // Success — replace the old ws with this new one
+            this._pendingReconnectWs = null;
             this.ws = newWs;
             this._stopReconnecting();
             this.log(`✅ Reconnected. Session restored.`);
@@ -632,6 +640,7 @@ class Session {
             }
           } else if (msg.type === 'error') {
             this.log(`Rejoin failed: ${msg.msg}`);
+            this._pendingReconnectWs = null;
             this._stopReconnecting();
             this.destroy();
             try { newWs.close(); } catch {}
@@ -640,11 +649,13 @@ class Session {
 
         newWs.on('error', () => {
           // Connection failed, next retry in 5s
+          if (this._pendingReconnectWs === newWs) this._pendingReconnectWs = null;
           try { newWs.close(); } catch {}
         });
 
         newWs.on('close', () => {
-          // If we haven't adopted this ws, nothing to do — retry will fire
+          // Clean up reference if this was the pending socket
+          if (this._pendingReconnectWs === newWs) this._pendingReconnectWs = null;
         });
       } catch (e) {
         // Connection failed, next retry in 5s
@@ -656,6 +667,10 @@ class Session {
     if (this.reconnectTimer) {
       clearInterval(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this._pendingReconnectWs) {
+      try { this._pendingReconnectWs.removeAllListeners(); this._pendingReconnectWs.close(); } catch {}
+      this._pendingReconnectWs = null;
     }
   }
 

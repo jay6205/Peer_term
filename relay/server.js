@@ -429,20 +429,31 @@ wss.on('connection', (ws, req) => {
       // ─── Host rejoin (host reconnecting after IP change/drop) ────────
       case 'host-rejoin': {
         const { code } = msg;
+        const ip = ws._peerTermIp;
+
+        // Rate limit check
+        if (isRateLimited(ip)) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Too many attempts. Try again in 60 seconds.' }));
+          return;
+        }
+
         const session = sessions.get(code);
 
         if (!session) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Session no longer exists.' }));
+          recordFailedAttempt(ip);
           return;
         }
 
         if (session.hostRejoinDeadline && Date.now() > session.hostRejoinDeadline) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Rejoin window expired.' }));
+          recordFailedAttempt(ip);
           return;
         }
 
         if (!session.hostDisconnected) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Host is already connected.' }));
+          recordFailedAttempt(ip);
           return;
         }
 
@@ -461,6 +472,7 @@ wss.on('connection', (ws, req) => {
 
         // Confirm to host
         ws.send(JSON.stringify({ type: 'rejoined', code }));
+        resetRateLimit(ip);
         console.log(`[session] Host rejoined session: ${code}`);
         break;
       }

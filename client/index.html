@@ -998,21 +998,19 @@
             setTimeout(() => resetToConnectScreen(), 3000);
             break;
 
-          // ─── Host lost connection, waiting for host to reconnect ───────
           case 'host-reconnecting':
             hostWaitingForReconnect = true;
             stopHeartbeat();
+            // Save the current indicator state before cleanup resets useDataChannel
+            previousIndicatorState = useDataChannel ? 'direct' : 'relay';
             // Phase 4: Clean up WebRTC while host is disconnected
             cleanupWebRTC();
-            // Save the current indicator state so we can restore it
-            previousIndicatorState = useDataChannel ? 'direct' : 'relay';
             if (terminal) {
               terminal.write('\r\n\x1b[1;33m Host lost connection. Waiting for host to reconnect...\x1b[0m\r\n');
               updateStatusDot('yellow');
               updateConnIndicator('reconnecting');
             }
             break;
-
           // ─── Host reconnected after IP change/drop ────────────────────
           case 'host-reconnected':
             hostWaitingForReconnect = false;
