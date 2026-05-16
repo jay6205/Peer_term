@@ -887,6 +887,11 @@
           // ─── Error from relay ─────────────────────────────────────────
           case 'error':
             if (isReconnecting) {
+              if (msg.msg === 'Session already in use') {
+                // Relay may not have processed the old client socket close yet.
+                if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+                return;
+              }
               // During reconnect, errors mean session is gone
               sessionEnded = true;
               stopReconnecting();
@@ -959,6 +964,15 @@
           // ─── Heartbeat from host ──────────────────────────────────────
           case 'heartbeat':
             missedPings = 0;
+            if (hostWaitingForReconnect) {
+              hostWaitingForReconnect = false;
+              if (terminal) {
+                terminal.write('\r\n\x1b[1;32m Host connection restored.\x1b[0m\r\n');
+                updateStatusDot('green');
+                updateConnIndicator(previousIndicatorState);
+              }
+              startHeartbeat();
+            }
             break;
 
           // ─── Encrypted data from host (PTY output) ────────────────────
@@ -1010,17 +1024,7 @@
             break;
 
           case 'host-reconnecting':
-            hostWaitingForReconnect = true;
-            stopHeartbeat();
-            // Save the current indicator state before cleanup resets useDataChannel
-            previousIndicatorState = useDataChannel ? 'direct' : 'relay';
-            // Phase 4: Clean up WebRTC while host is disconnected
-            cleanupWebRTC();
-            if (terminal) {
-              terminal.write('\r\n\x1b[1;33m Host lost connection. Waiting for host to reconnect...\x1b[0m\r\n');
-              updateStatusDot('yellow');
-              updateConnIndicator('reconnecting');
-            }
+            waitForHostReconnect();
             break;
           // ─── Host reconnected after IP change/drop ────────────────────
           case 'host-reconnected':
@@ -1030,7 +1034,7 @@
               updateStatusDot('green');
               updateConnIndicator(previousIndicatorState);
             }
-            // Heartbeat will resume after the next key-exchange cycle
+            startHeartbeat();
             break;
 
           // ─── Host disconnected ────────────────────────────────────────
@@ -1728,6 +1732,21 @@
     // HEARTBEAT — 5s ping, 2 missed = connection dead
     // ═════════════════════════════════════════════════════════════════════════
 
+    function waitForHostReconnect(message) {
+      if (hostWaitingForReconnect || sessionEnded) return;
+
+      hostWaitingForReconnect = true;
+      stopHeartbeat();
+      previousIndicatorState = useDataChannel ? 'direct' : 'relay';
+      cleanupWebRTC();
+
+      if (terminal) {
+        terminal.write(message || '\r\n\x1b[1;33m Host lost connection. Waiting for host to reconnect...\x1b[0m\r\n');
+        updateStatusDot('yellow');
+        updateConnIndicator('reconnecting');
+      }
+    }
+
     function startHeartbeat() {
       stopHeartbeat();
       missedPings = 0;
@@ -1738,17 +1757,22 @@
         missedPings++;
 
         if (missedPings >= MAX_MISSED + 1) {
-          stopHeartbeat();
-          sharedKey = null;
-          keyPair = null;
-          // Phase 4: Clean up WebRTC on heartbeat loss
-          cleanupWebRTC();
-          if (terminal) {
-            terminal.write('\r\n\x1b[1;33m Connection lost. Attempting to reconnect...\x1b[0m\r\n');
-            updateStatusDot('yellow');
-            updateConnIndicator('reconnecting');
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'heartbeat-timeout' }));
+            waitForHostReconnect('\r\n\x1b[1;33m Host heartbeat lost. Waiting for host to reconnect...\x1b[0m\r\n');
+          } else {
+            stopHeartbeat();
+            sharedKey = null;
+            keyPair = null;
+            // Phase 4: Clean up WebRTC on heartbeat loss
+            cleanupWebRTC();
+            if (terminal) {
+              terminal.write('\r\n\x1b[1;33m Connection lost. Attempting to reconnect...\x1b[0m\r\n');
+              updateStatusDot('yellow');
+              updateConnIndicator('reconnecting');
+            }
+            beginReconnecting();
           }
-          beginReconnecting();
         }
       }, HEARTBEAT_MS);
     }

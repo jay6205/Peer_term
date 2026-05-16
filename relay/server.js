@@ -27,6 +27,7 @@ const PORT = process.env.PORT || 8080;
 const DEFAULT_EXPIRY_MS = 5 * 60 * 1000;         // 5 minutes
 const REJOIN_WINDOW_MS = 2 * 60 * 1000;           // 2 minutes
 const CLEANUP_INTERVAL_MS = 30 * 1000;             // 30 seconds
+const HEARTBEAT_TIMEOUT_MS = 15 * 1000;            // 3 missed 5s heartbeats
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const RATE_LIMIT_BLOCK_MS = 60 * 1000;             // 60 seconds
 
@@ -42,6 +43,47 @@ const sessions = new Map();
 
 // Reverse lookup: socket → code (for cleanup on disconnect)
 const socketToCode = new Map();
+
+function markHostDisconnected(code, session, reason = 'disconnect') {
+  if (session.hostDisconnected) return;
+
+  console.log(`[session] Host ${reason} from session: ${code}`);
+
+  session.hostDisconnected = true;
+  session.hostRejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
+  socketToCode.delete(session.hostSocket);
+
+  if (session.hostSocket && session.hostSocket.readyState === 1) {
+    try { session.hostSocket.terminate(); } catch {}
+  }
+
+  if (session.clientSocket && session.clientSocket.readyState === 1) {
+    session.clientSocket.send(JSON.stringify({ type: 'host-reconnecting' }));
+  }
+
+  console.log(`[session] Host rejoin window open for session ${code} (2 minutes)`);
+}
+
+function markClientDisconnected(code, session, reason = 'disconnect') {
+  if (session.clientDisconnected) return;
+
+  console.log(`[session] Client ${reason} from session: ${code}`);
+
+  session.clientDisconnected = true;
+  session.rejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
+  socketToCode.delete(session.clientSocket);
+
+  if (session.clientSocket && session.clientSocket.readyState === 1) {
+    try { session.clientSocket.terminate(); } catch {}
+  }
+  session.clientSocket = null;
+
+  if (session.hostSocket && session.hostSocket.readyState === 1) {
+    session.hostSocket.send(JSON.stringify({ type: 'peer-disconnected' }));
+  }
+
+  console.log(`[session] Client rejoin window open for session ${code} (2 minutes)`);
+}
 
 // ─── Rate Limiting Store ─────────────────────────────────────────────────────
 // Map<ip, { attempts: number, blockedUntil: number | null }>
@@ -360,18 +402,69 @@ wss.on('connection', (ws, req) => {
         if (!code) return;
         const session = sessions.get(code);
         if (!session) return;
+        const now = Date.now();
 
         // Update lastSeen for the sending side
         if (ws === session.hostSocket) {
-          session.hostLastSeen = Date.now();
+          session.hostLastSeen = now;
+          if (
+            session.clientSocket &&
+            !session.clientDisconnected &&
+            session.clientLastSeen &&
+            now - session.clientLastSeen > HEARTBEAT_TIMEOUT_MS
+          ) {
+            markClientDisconnected(code, session, 'heartbeat timed out');
+            break;
+          }
         } else if (ws === session.clientSocket) {
-          session.clientLastSeen = Date.now();
+          session.clientLastSeen = now;
+          if (
+            !session.hostDisconnected &&
+            session.hostLastSeen &&
+            now - session.hostLastSeen > HEARTBEAT_TIMEOUT_MS
+          ) {
+            markHostDisconnected(code, session, 'heartbeat timed out');
+            break;
+          }
         }
 
         // Forward heartbeat to the paired peer
         const peer = (ws === session.hostSocket) ? session.clientSocket : session.hostSocket;
         if (peer && peer.readyState === 1) {
           peer.send(JSON.stringify({ type: 'heartbeat' }));
+        }
+        break;
+      }
+
+      // Peer heartbeat timed out while this socket is still connected.
+      case 'heartbeat-timeout': {
+        const code = socketToCode.get(ws);
+        if (!code) return;
+        const session = sessions.get(code);
+        if (!session) return;
+
+        if (ws === session.clientSocket) {
+          const now = Date.now();
+          session.clientLastSeen = now;
+          if (
+            !session.hostLastSeen ||
+            now - session.hostLastSeen > HEARTBEAT_TIMEOUT_MS ||
+            !session.hostSocket ||
+            session.hostSocket.readyState !== 1
+          ) {
+            markHostDisconnected(code, session, 'heartbeat timed out');
+          }
+        } else if (ws === session.hostSocket) {
+          const now = Date.now();
+          session.hostLastSeen = now;
+          if (
+            !session.clientLastSeen ||
+            now - session.clientLastSeen > HEARTBEAT_TIMEOUT_MS ||
+            !session.clientSocket ||
+            session.clientSocket.readyState !== 1
+          ) {
+            markClientDisconnected(code, session, 'heartbeat timed out');
+          }
         }
         break;
       }
@@ -585,4 +678,3 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-

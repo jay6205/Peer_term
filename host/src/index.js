@@ -211,12 +211,16 @@ class Session {
     const config = JSON.stringify({
       type: 'session-config',
       readonly: this.readOnly,
-      version: '1.1.3',
+      version: '1.1.5',
       shell: this.shell,
       startPath: this.startPath,
     });
-    const payload = await encrypt(this.sharedKey, config);
-    this.ws.send(JSON.stringify({ type: 'data', payload }));
+    try {
+      const payload = await encrypt(this.sharedKey, config);
+      this.ws.send(JSON.stringify({ type: 'data', payload }));
+    } catch (err) {
+      this.log(`Failed to send session config: ${err.message}`);
+    }
   }
 
   // ─── Start the session ──────────────────────────────────────────────
