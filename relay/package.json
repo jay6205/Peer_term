@@ -1,6 +1,7 @@
 {
   "name": "peer-term-relay",
   "version": "1.0.0",
+  "license": "MIT",
   "description": "PeerTerm WebSocket relay & signaling server",
   "main": "server.js",
   "type": "module",
