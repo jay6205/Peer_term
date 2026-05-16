@@ -669,6 +669,8 @@
 
     // Phase 3: Feature state
     let isReadOnly = false;
+    let readOnlyHint = false;
+    let sessionConfigApplied = false;
     let currentFontSize = 14;
     const isMobile = navigator.maxTouchPoints > 0;
 
@@ -903,8 +905,15 @@
 
           // ─── Host is connected, start key exchange ────────────────────
           case 'host-connected':
-            // Capture readonly mode
-            isReadOnly = msg.readonly === true;
+            sessionConfigApplied = false;
+            readOnlyHint = msg.readonly === true;
+            // UNTRUSTED - relay envelope hint only.
+            // Real enforcement comes from encrypted session-config.
+            if (readOnlyHint) {
+              showViewOnlyBadge();
+            } else if (!isReconnecting) {
+              hideViewOnlyBadge();
+            }
             if (!isReconnecting) {
               connectingOvl.classList.add('visible');
             }
@@ -916,6 +925,7 @@
             if (!keyPair) return;
             const peerPubKey = await importPublicKey(msg.publicKey);
             sharedKey = await deriveSharedKey(keyPair.privateKey, peerPubKey);
+            sessionConfigApplied = false;
 
             const ourPubKey = await exportPublicKey(keyPair.publicKey);
             ws.send(JSON.stringify({ type: 'key-exchange', publicKey: ourPubKey }));
@@ -953,10 +963,11 @@
 
           // ─── Encrypted data from host (PTY output) ────────────────────
           case 'data':
-            if (!sharedKey || !terminal) return;
+            if (!sharedKey) return;
             try {
               // Check for resize message from host
               if (msg.meta === 'resize') {
+                if (!terminal) return;
                 const resizeData = JSON.parse(await decrypt(sharedKey, msg.payload));
                 if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
                   terminal.resize(resizeData.cols, resizeData.rows);
@@ -964,7 +975,7 @@
                 break;
               }
               const plaintext = await decrypt(sharedKey, msg.payload);
-              terminal.write(plaintext);
+              handleDecryptedHostMessage(plaintext);
             } catch (err) {
               console.error('Decryption error:', err);
             }
@@ -1093,6 +1104,66 @@
     // TERMINAL
     // ═════════════════════════════════════════════════════════════════════════
 
+    function showViewOnlyBadge() {
+      readonlyBadge.style.display = 'flex';
+    }
+
+    function hideViewOnlyBadge() {
+      readonlyBadge.style.display = 'none';
+    }
+
+    function setReadonly(readonly) {
+      isReadOnly = readonly === true;
+      readOnlyHint = false;
+
+      if (isReadOnly) {
+        showViewOnlyBadge();
+        pasteBtn.style.display = 'none';
+        mobileInput.disabled = true;
+        mobileInput.blur();
+      } else {
+        hideViewOnlyBadge();
+        pasteBtn.style.display = '';
+        mobileInput.disabled = false;
+      }
+
+      if (terminal) {
+        terminal.options.disableStdin = isReadOnly;
+        terminal.options.cursorBlink = !isReadOnly;
+      }
+    }
+
+    function applySessionConfig(config) {
+      // Trusted: came from the host through the encrypted tunnel.
+      sessionConfigApplied = true;
+      setReadonly(config.readonly);
+      console.debug('[PeerTerm] Session config', {
+        shell: config.shell,
+        startPath: config.startPath,
+        version: config.version,
+      });
+    }
+
+    function handleDecryptedHostMessage(plaintext) {
+      if (!sessionConfigApplied) {
+        try {
+          const parsed = JSON.parse(plaintext);
+          if (
+            parsed &&
+            parsed.type === 'session-config' &&
+            typeof parsed.readonly === 'boolean'
+          ) {
+            applySessionConfig(parsed);
+            return;
+          }
+        } catch {}
+      }
+
+      if (terminal) {
+        terminal.write(plaintext);
+      }
+    }
+
     function showTerminal() {
       // Hide connect screen, show terminal
       connectScreen.style.display = 'none';
@@ -1102,13 +1173,12 @@
       updateConnIndicator('relay');
 
       // Read-only mode setup
-      if (isReadOnly) {
-        readonlyBadge.style.display = 'flex';
-        pasteBtn.style.display = 'none';
+      if (isReadOnly || readOnlyHint) {
+        showViewOnlyBadge();
       } else {
-        readonlyBadge.style.display = 'none';
-        pasteBtn.style.display = '';
+        hideViewOnlyBadge();
       }
+      pasteBtn.style.display = isReadOnly ? 'none' : '';
 
       // Initialize xterm.js
       terminal = new Terminal({
@@ -1563,7 +1633,7 @@
           };
 
           dataChannel.onmessage = async (event) => {
-            if (!sharedKey || !terminal) return;
+            if (!sharedKey) return;
             try {
               const rawData = event.data;
 
@@ -1576,6 +1646,7 @@
               }
 
               if (parsed && parsed._meta === 'resize') {
+                if (!terminal) return;
                 const resizeData = JSON.parse(await decrypt(sharedKey, parsed.payload));
                 if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
                   terminal.resize(resizeData.cols, resizeData.rows);
@@ -1585,7 +1656,7 @@
 
               // Normal encrypted terminal data
               const plaintext = await decrypt(sharedKey, rawData);
-              terminal.write(plaintext);
+              handleDecryptedHostMessage(plaintext);
             } catch (err) {
               console.error('[WebRTC] Decryption error:', err);
             }
@@ -1760,6 +1831,8 @@
       sharedKey = null;
       sessionCode = '';
       isReadOnly = false;
+      readOnlyHint = false;
+      sessionConfigApplied = false;
       hostWaitingForReconnect = false;
       currentFontSize = 14;
 
@@ -1767,8 +1840,9 @@
       terminalScreen.classList.remove('active');
       connectScreen.style.display = '';
       connectingOvl.classList.remove('visible');
-      readonlyBadge.style.display = 'none';
+      hideViewOnlyBadge();
       pasteBtn.style.display = '';
+      mobileInput.disabled = false;
       copyBtn.classList.remove('visible');
 
       updateStatusDot('green');

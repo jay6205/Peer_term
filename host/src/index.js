@@ -205,6 +205,20 @@ class Session {
     logger.debug(`${prefix} ${msg}`);
   }
 
+  async _sendSessionConfig() {
+    if (!this.sharedKey || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    const config = JSON.stringify({
+      type: 'session-config',
+      readonly: this.readOnly,
+      version: '1.1.3',
+      shell: this.shell,
+      startPath: this.startPath,
+    });
+    const payload = await encrypt(this.sharedKey, config);
+    this.ws.send(JSON.stringify({ type: 'data', payload }));
+  }
+
   // ─── Start the session ──────────────────────────────────────────────
   async start() {
     for (let i = 0; i < RELAY_URLS.length; i++) {
@@ -284,6 +298,7 @@ class Session {
             const peerPublicKey = await importPublicKey(msg.publicKey);
             this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
             this.log('Encrypted tunnel active');
+            await this._sendSessionConfig();
 
             this.startHeartbeat();
 
@@ -712,6 +727,7 @@ class Session {
           const peerPublicKey = await importPublicKey(msg.publicKey);
           this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
           this.log('Encrypted tunnel active');
+          await this._sendSessionConfig();
 
           this.startHeartbeat();
 
