@@ -212,7 +212,7 @@ class Session {
     const config = JSON.stringify({
       type: 'session-config',
       readonly: this.readOnly,
-      version: '1.1.6',
+      version: '1.1.7',
       shell: this.shell,
       startPath: this.startPath,
     });
