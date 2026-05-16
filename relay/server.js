@@ -85,6 +85,46 @@ function markClientDisconnected(code, session, reason = 'disconnect') {
   console.log(`[session] Client rejoin window open for session ${code} (2 minutes)`);
 }
 
+function sendRoleError(ws, messageType) {
+  ws.send(JSON.stringify({ type: 'error', msg: `${messageType} not allowed for this socket` }));
+}
+
+function requireUnregisteredSocket(ws, messageType) {
+  if (!socketToCode.has(ws)) return true;
+  sendRoleError(ws, messageType);
+  return false;
+}
+
+function getSocketState(ws) {
+  const code = socketToCode.get(ws);
+  if (!code) return null;
+
+  const session = sessions.get(code);
+  if (!session) {
+    socketToCode.delete(ws);
+    return null;
+  }
+
+  if (ws === session.hostSocket) return { code, session, role: 'host' };
+  if (ws === session.clientSocket) return { code, session, role: 'client' };
+  return { code, session, role: null };
+}
+
+function requireRole(ws, messageType, allowedRoles) {
+  const state = getSocketState(ws);
+  if (!state || !allowedRoles.includes(state.role)) {
+    sendRoleError(ws, messageType);
+    return null;
+  }
+  return state;
+}
+
+function getPeer(session, role) {
+  if (role === 'host') return session.clientSocket;
+  if (role === 'client') return session.hostSocket;
+  return null;
+}
+
 // ─── Rate Limiting Store ─────────────────────────────────────────────────────
 // Map<ip, { attempts: number, blockedUntil: number | null }>
 const rateLimits = new Map();
@@ -296,12 +336,15 @@ wss.on('connection', (ws, req) => {
     switch (msg.type) {
       // ─── Host registers a new session ────────────────────────────────
       case 'host-register': {
+        if (!requireUnregisteredSocket(ws, msg.type)) return;
+
         const expiryMs = (typeof msg.expiry === 'number' && msg.expiry > 0)
           ? msg.expiry
           : DEFAULT_EXPIRY_MS;
 
         const readonly = msg.readonly === true;
         const code = generateCode();
+        const hostToken = crypto.randomBytes(32).toString('hex');
         sessions.set(code, {
           hostSocket: ws,
           clientSocket: null,
@@ -313,17 +356,20 @@ wss.on('connection', (ws, req) => {
           hostRejoinDeadline: null,
           hostLastSeen: Date.now(),
           clientLastSeen: null,
+          hostToken,
           readonly,
         });
         socketToCode.set(ws, code);
 
-        ws.send(JSON.stringify({ type: 'code', code }));
+        ws.send(JSON.stringify({ type: 'code', code, hostToken }));
         console.log(`[session] Host registered with code: ${code} (expires in ${Math.round(expiryMs / 1000)}s)${readonly ? ' (readonly)' : ''}`);
         break;
       }
 
       // ─── Client joins an existing session ────────────────────────────
       case 'client-join': {
+        if (!requireUnregisteredSocket(ws, msg.type)) return;
+
         const { code } = msg;
         const ip = ws._peerTermIp;
 
@@ -344,6 +390,11 @@ wss.on('connection', (ws, req) => {
         }
 
         // Rejoin case — client reconnecting within the 2-minute window
+        if (session.hostDisconnected) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Host is reconnecting. Try again shortly.' }));
+          return;
+        }
+
         if (session.clientDisconnected && session.rejoinDeadline && Date.now() < session.rejoinDeadline) {
           console.log(`[session] Client rejoining session: ${code}`);
           session.clientSocket = ws;
@@ -383,13 +434,12 @@ wss.on('connection', (ws, req) => {
 
       // ─── Key exchange (ECDH public keys) ─────────────────────────────
       case 'key-exchange': {
-        const code = socketToCode.get(ws);
-        if (!code) return;
-        const session = sessions.get(code);
-        if (!session) return;
+        const state = requireRole(ws, msg.type, ['host', 'client']);
+        if (!state) return;
+        const { session, role } = state;
 
         // Forward key-exchange to the other peer
-        const peer = (ws === session.hostSocket) ? session.clientSocket : session.hostSocket;
+        const peer = getPeer(session, role);
         if (peer && peer.readyState === 1) {
           peer.send(JSON.stringify(msg));
         }
@@ -398,14 +448,13 @@ wss.on('connection', (ws, req) => {
 
       // ─── Heartbeat ───────────────────────────────────────────────────
       case 'heartbeat': {
-        const code = socketToCode.get(ws);
-        if (!code) return;
-        const session = sessions.get(code);
-        if (!session) return;
+        const state = requireRole(ws, msg.type, ['host', 'client']);
+        if (!state) return;
+        const { code, session, role } = state;
         const now = Date.now();
 
         // Update lastSeen for the sending side
-        if (ws === session.hostSocket) {
+        if (role === 'host') {
           session.hostLastSeen = now;
           if (
             session.clientSocket &&
@@ -416,7 +465,7 @@ wss.on('connection', (ws, req) => {
             markClientDisconnected(code, session, 'heartbeat timed out');
             break;
           }
-        } else if (ws === session.clientSocket) {
+        } else if (role === 'client') {
           session.clientLastSeen = now;
           if (
             !session.hostDisconnected &&
@@ -429,7 +478,7 @@ wss.on('connection', (ws, req) => {
         }
 
         // Forward heartbeat to the paired peer
-        const peer = (ws === session.hostSocket) ? session.clientSocket : session.hostSocket;
+        const peer = getPeer(session, role);
         if (peer && peer.readyState === 1) {
           peer.send(JSON.stringify({ type: 'heartbeat' }));
         }
@@ -438,12 +487,11 @@ wss.on('connection', (ws, req) => {
 
       // Peer heartbeat timed out while this socket is still connected.
       case 'heartbeat-timeout': {
-        const code = socketToCode.get(ws);
-        if (!code) return;
-        const session = sessions.get(code);
-        if (!session) return;
+        const state = requireRole(ws, msg.type, ['host', 'client']);
+        if (!state) return;
+        const { code, session, role } = state;
 
-        if (ws === session.clientSocket) {
+        if (role === 'client') {
           const now = Date.now();
           session.clientLastSeen = now;
           if (
@@ -454,7 +502,7 @@ wss.on('connection', (ws, req) => {
           ) {
             markHostDisconnected(code, session, 'heartbeat timed out');
           }
-        } else if (ws === session.hostSocket) {
+        } else if (role === 'host') {
           const now = Date.now();
           session.hostLastSeen = now;
           if (
@@ -471,10 +519,9 @@ wss.on('connection', (ws, req) => {
 
       // ─── Session ended (host PTY exited or host intentionally quit) ──
       case 'session-ended': {
-        const code = socketToCode.get(ws);
-        if (!code) return;
-        const session = sessions.get(code);
-        if (!session) return;
+        const state = requireRole(ws, msg.type, ['host']);
+        if (!state) return;
+        const { code, session } = state;
 
         // Forward to client — this is an intentional end, no rejoin window
         if (session.clientSocket && session.clientSocket.readyState === 1) {
@@ -491,13 +538,12 @@ wss.on('connection', (ws, req) => {
 
       // ─── WebRTC signaling (Phase 4) ────────────────────────────────────
       case 'signal': {
-        const code = socketToCode.get(ws);
-        if (!code) return;
-        const session = sessions.get(code);
-        if (!session) return;
+        const state = requireRole(ws, msg.type, ['host', 'client']);
+        if (!state) return;
+        const { session, role } = state;
 
         // Forward signal messages between peers — relay doesn't inspect
-        const peer = (ws === session.hostSocket) ? session.clientSocket : session.hostSocket;
+        const peer = getPeer(session, role);
         if (peer && peer.readyState === 1) {
           peer.send(raw.toString());
         }
@@ -506,13 +552,12 @@ wss.on('connection', (ws, req) => {
 
       // ─── Data relay (encrypted terminal I/O) ─────────────────────────
       case 'data': {
-        const code = socketToCode.get(ws);
-        if (!code) return;
-        const session = sessions.get(code);
-        if (!session) return;
+        const state = requireRole(ws, msg.type, ['host', 'client']);
+        if (!state) return;
+        const { session, role } = state;
 
         // Forward data as-is to the paired peer — relay never reads payload
-        const peer = (ws === session.hostSocket) ? session.clientSocket : session.hostSocket;
+        const peer = getPeer(session, role);
         if (peer && peer.readyState === 1) {
           peer.send(raw.toString());
         }
@@ -521,6 +566,8 @@ wss.on('connection', (ws, req) => {
 
       // ─── Host rejoin (host reconnecting after IP change/drop) ────────
       case 'host-rejoin': {
+        if (!requireUnregisteredSocket(ws, msg.type)) return;
+
         const { code } = msg;
         const ip = ws._peerTermIp;
 
@@ -534,6 +581,12 @@ wss.on('connection', (ws, req) => {
 
         if (!session) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Session no longer exists.' }));
+          recordFailedAttempt(ip);
+          return;
+        }
+
+        if (!msg.hostToken || msg.hostToken !== session.hostToken) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Invalid host rejoin token.' }));
           recordFailedAttempt(ip);
           return;
         }

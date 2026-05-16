@@ -173,6 +173,7 @@ class Session {
 
     this.ws = null;
     this.code = null;
+    this.hostToken = null;
     this.keyPair = null;
     this.sharedKey = null;
     this.ptyProcess = null;
@@ -211,7 +212,7 @@ class Session {
     const config = JSON.stringify({
       type: 'session-config',
       readonly: this.readOnly,
-      version: '1.1.5',
+      version: '1.1.6',
       shell: this.shell,
       startPath: this.startPath,
     });
@@ -267,6 +268,7 @@ class Session {
         switch (msg.type) {
           case 'code': {
             this.code = msg.code;
+            this.hostToken = msg.hostToken || null;
             printSessionBox({
               code: this.code,
               expiry: formatDuration(this.expiryMs),
@@ -632,7 +634,7 @@ class Session {
         this._pendingReconnectWs = newWs;
 
         newWs.on('open', () => {
-          newWs.send(JSON.stringify({ type: 'host-rejoin', code: this.code }));
+          newWs.send(JSON.stringify({ type: 'host-rejoin', code: this.code, hostToken: this.hostToken }));
         });
 
         newWs.on('message', (raw) => {

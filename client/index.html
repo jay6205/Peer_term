@@ -887,8 +887,8 @@
           // ─── Error from relay ─────────────────────────────────────────
           case 'error':
             if (isReconnecting) {
-              if (msg.msg === 'Session already in use') {
-                // Relay may not have processed the old client socket close yet.
+              if (msg.msg === 'Session already in use' || msg.msg === 'Host is reconnecting. Try again shortly.') {
+                // Transient reconnect state; retry on the next reconnect tick.
                 if (ws && ws.readyState === WebSocket.OPEN) ws.close();
                 return;
               }
