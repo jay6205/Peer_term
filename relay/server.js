@@ -50,7 +50,7 @@ function markHostDisconnected(code, session, reason = 'disconnect') {
   console.log(`[session] Host ${reason} from session: ${code}`);
 
   session.hostDisconnected = true;
-  session.hostRejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
+  session.hostRejoinDeadline = Date.now() + (session.rejoinWindowMs || REJOIN_WINDOW_MS);
   socketToCode.delete(session.hostSocket);
 
   if (session.hostSocket && session.hostSocket.readyState === 1) {
@@ -61,7 +61,7 @@ function markHostDisconnected(code, session, reason = 'disconnect') {
     session.clientSocket.send(JSON.stringify({ type: 'host-reconnecting' }));
   }
 
-  console.log(`[session] Host rejoin window open for session ${code} (2 minutes)`);
+  console.log(`[session] Host rejoin window open for session ${code} (${Math.round((session.rejoinWindowMs || REJOIN_WINDOW_MS) / 60000)} min)`);
 }
 
 function markClientDisconnected(code, session, reason = 'disconnect') {
@@ -70,7 +70,7 @@ function markClientDisconnected(code, session, reason = 'disconnect') {
   console.log(`[session] Client ${reason} from session: ${code}`);
 
   session.clientDisconnected = true;
-  session.rejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
+  session.rejoinDeadline = Date.now() + (session.rejoinWindowMs || REJOIN_WINDOW_MS);
   socketToCode.delete(session.clientSocket);
 
   if (session.clientSocket && session.clientSocket.readyState === 1) {
@@ -82,7 +82,7 @@ function markClientDisconnected(code, session, reason = 'disconnect') {
     session.hostSocket.send(JSON.stringify({ type: 'peer-disconnected' }));
   }
 
-  console.log(`[session] Client rejoin window open for session ${code} (2 minutes)`);
+  console.log(`[session] Client rejoin window open for session ${code} (${Math.round((session.rejoinWindowMs || REJOIN_WINDOW_MS) / 60000)} min)`);
 }
 
 function sendRoleError(ws, messageType) {
@@ -342,6 +342,10 @@ wss.on('connection', (ws, req) => {
           ? msg.expiry
           : DEFAULT_EXPIRY_MS;
 
+        const rejoinWindowMs = (typeof msg.rejoinWindow === 'number' && msg.rejoinWindow > 0)
+          ? msg.rejoinWindow
+          : REJOIN_WINDOW_MS;
+
         const readonly = msg.readonly === true;
         const code = generateCode();
         const hostToken = crypto.randomBytes(32).toString('hex');
@@ -358,6 +362,7 @@ wss.on('connection', (ws, req) => {
           clientLastSeen: null,
           hostToken,
           readonly,
+          rejoinWindowMs,
         });
         socketToCode.set(ws, code);
 
@@ -642,7 +647,7 @@ wss.on('connection', (ws, req) => {
 
       // Don't delete the session — open a 2-minute host rejoin window
       session.hostDisconnected = true;
-      session.hostRejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
+      session.hostRejoinDeadline = Date.now() + (session.rejoinWindowMs || REJOIN_WINDOW_MS);
       socketToCode.delete(ws);
 
       // Notify client that host lost connection (but session stays alive)
@@ -650,7 +655,7 @@ wss.on('connection', (ws, req) => {
         session.clientSocket.send(JSON.stringify({ type: 'host-reconnecting' }));
       }
 
-      console.log(`[session] Host rejoin window open for session ${code} (2 minutes)`);
+      console.log(`[session] Host rejoin window open for session ${code} (${Math.round((session.rejoinWindowMs || REJOIN_WINDOW_MS) / 60000)} min)`);
 
     // ─── Client disconnected ─────────────────────────────────────────
     } else if (ws === session.clientSocket) {
@@ -659,7 +664,7 @@ wss.on('connection', (ws, req) => {
       // Don't delete the session — open a 2-minute rejoin window
       session.clientDisconnected = true;
       session.clientSocket = null;
-      session.rejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
+      session.rejoinDeadline = Date.now() + (session.rejoinWindowMs || REJOIN_WINDOW_MS);
       socketToCode.delete(ws);
 
       // Notify host that client disconnected (but session stays alive)
@@ -667,7 +672,7 @@ wss.on('connection', (ws, req) => {
         session.hostSocket.send(JSON.stringify({ type: 'peer-disconnected' }));
       }
 
-      console.log(`[session] Client rejoin window open for session ${code} (2 minutes)`);
+      console.log(`[session] Client rejoin window open for session ${code} (${Math.round((session.rejoinWindowMs || REJOIN_WINDOW_MS) / 60000)} min)`);
     }
   });
 

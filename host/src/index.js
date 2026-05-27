@@ -10,6 +10,7 @@
  *
  * CLI flags:
  *   --expiry <value>   Session code expiry (e.g. 5m, 30s, 1h). Default: 5m
+ *   --rejoin <value>   Reconnection window (e.g. 5m, 1h, 6h). Default: 2m
  *   --readonly         Prevent client keystrokes from reaching the PTY
  *   --path <dir>       Starting directory for the terminal session
  *   --relay <url>      Custom relay server URL
@@ -52,10 +53,13 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const argv = minimist(process.argv.slice(2), {
   boolean: ['readonly', 'verbose', 'help', 'version'],
-  string: ['expiry', 'relay', 'path'],
+  string: ['expiry', 'rejoin', 'relay', 'path'],
   alias: { h: 'help', v: 'version', V: 'verbose' },
-  default: { expiry: '5m' },
 });
+
+// Detect if --expiry or --rejoin were explicitly passed on the command line
+const expiryFlagPassed = process.argv.some(a => a === '--expiry' || a.startsWith('--expiry='));
+const rejoinFlagPassed = process.argv.some(a => a === '--rejoin' || a.startsWith('--rejoin='));
 
 // Handle --help
 if (argv.help) {
@@ -143,6 +147,130 @@ function getExpiry() {
   return parsed;
 }
 
+// ─── Interactive Prompts ─────────────────────────────────────────────────────
+
+/**
+ * Prompt the user for a duration value in the terminal.
+ * Re-prompts on invalid input until a valid value is entered or Enter is pressed for default.
+ *
+ * @param {Object} opts
+ * @param {string} opts.label       - Main prompt question
+ * @param {string} opts.description - Additional context shown below the question
+ * @param {number} opts.defaultMs   - Default value in milliseconds
+ * @param {string} opts.defaultLabel - Human-readable default (e.g. "5 minutes")
+ * @param {number} opts.minMs       - Minimum allowed value in milliseconds
+ * @param {number} opts.maxMs       - Maximum allowed value in milliseconds
+ * @param {string} opts.minLabel    - Human-readable minimum (e.g. "2m")
+ * @param {string} opts.maxLabel    - Human-readable maximum (e.g. "24h")
+ * @returns {Promise<number>} Resolved duration in milliseconds
+ */
+function promptDuration({ label, description, defaultMs, defaultLabel, minMs, maxMs, minLabel, maxLabel }) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    const ask = () => {
+      console.log('');
+      console.log(`  ${label}`);
+      if (description) console.log(`  ${description}`);
+      console.log(`  Enter a value between ${minLabel} and ${maxLabel} (e.g. ${minLabel}, 30m, 2h)`);
+      console.log(`  Default is ${defaultLabel}. Press Enter to use default.`);
+      rl.question('  > ', (answer) => {
+        const input = answer.trim();
+
+        // Empty input — use default
+        if (!input) {
+          rl.close();
+          resolve(defaultMs);
+          return;
+        }
+
+        const parsed = parseDuration(input);
+        if (!parsed || parsed < minMs || parsed > maxMs) {
+          console.log(`  Invalid value. Please enter a time between ${minLabel} and ${maxLabel} (e.g. 5m, 1h).`);
+          ask();
+          return;
+        }
+
+        rl.close();
+        resolve(parsed);
+      });
+    };
+
+    ask();
+  });
+}
+
+/**
+ * Get the session code expiry — from flag, interactive prompt, or silent default.
+ */
+async function getExpiryInteractive() {
+  const DEFAULT_EXPIRY = 5 * 60 * 1000;       // 5 minutes
+  const MIN_EXPIRY     = 2 * 60 * 1000;       // 2 minutes
+  const MAX_EXPIRY     = 24 * 60 * 60 * 1000; // 24 hours
+
+  // If --expiry flag was explicitly passed, use it (validate and exit on error)
+  if (expiryFlagPassed) {
+    const parsed = parseDuration(argv.expiry);
+    if (!parsed || parsed < MIN_EXPIRY || parsed > MAX_EXPIRY) {
+      logger.error(`Invalid expiry: "${argv.expiry}". Must be between 2m and 24h.`);
+      process.exit(1);
+    }
+    return parsed;
+  }
+
+  // Non-interactive — use default silently
+  if (!process.stdin.isTTY) return DEFAULT_EXPIRY;
+
+  // Interactive prompt
+  return promptDuration({
+    label: 'How long should the session code be valid?',
+    description: null,
+    defaultMs: DEFAULT_EXPIRY,
+    defaultLabel: '5 minutes',
+    minMs: MIN_EXPIRY,
+    maxMs: MAX_EXPIRY,
+    minLabel: '2m',
+    maxLabel: '24h',
+  });
+}
+
+/**
+ * Get the reconnection window — from flag, interactive prompt, or silent default.
+ */
+async function getRejoinInteractive() {
+  const DEFAULT_REJOIN = 2 * 60 * 1000;       // 2 minutes
+  const MIN_REJOIN     = 5 * 60 * 1000;       // 5 minutes
+  const MAX_REJOIN     = 6 * 60 * 60 * 1000;  // 6 hours
+
+  // If --rejoin flag was explicitly passed, use it
+  if (rejoinFlagPassed) {
+    const parsed = parseDuration(argv.rejoin);
+    if (!parsed || parsed < MIN_REJOIN || parsed > MAX_REJOIN) {
+      logger.error(`Invalid rejoin window: "${argv.rejoin}". Must be between 5m and 6h.`);
+      process.exit(1);
+    }
+    return parsed;
+  }
+
+  // Non-interactive — use default silently
+  if (!process.stdin.isTTY) return DEFAULT_REJOIN;
+
+  // Interactive prompt
+  return promptDuration({
+    label: 'How long should the reconnection window be?',
+    description: 'This is how long a disconnected client or host has to rejoin before the session ends.',
+    defaultMs: DEFAULT_REJOIN,
+    defaultLabel: '2 minutes',
+    minMs: MIN_REJOIN,
+    maxMs: MAX_REJOIN,
+    minLabel: '5m',
+    maxLabel: '6h',
+  });
+}
+
 // ─── Shell Detection ─────────────────────────────────────────────────────────
 
 function detectShell() {
@@ -164,9 +292,10 @@ function detectShell() {
 // ─── Session Class ───────────────────────────────────────────────────────────
 
 class Session {
-  constructor(shell, expiryMs, readOnly, startPath, onDestroy) {
+  constructor(shell, expiryMs, rejoinMs, readOnly, startPath, onDestroy) {
     this.shell = shell;
     this.expiryMs = expiryMs;
+    this.rejoinMs = rejoinMs;
     this.readOnly = readOnly;
     this.startPath = startPath;
     this.onDestroy = onDestroy;
@@ -212,7 +341,7 @@ class Session {
     const config = JSON.stringify({
       type: 'session-config',
       readonly: this.readOnly,
-      version: '1.1.8',
+      version: '1.2.0',
       shell: this.shell,
       startPath: this.startPath,
     });
@@ -252,6 +381,7 @@ class Session {
         this.ws.send(JSON.stringify({
           type: 'host-register',
           expiry: this.expiryMs,
+          rejoinWindow: this.rejoinMs,
           readonly: this.readOnly,
         }));
       });
@@ -272,6 +402,7 @@ class Session {
             printSessionBox({
               code: this.code,
               expiry: formatDuration(this.expiryMs),
+              rejoinWindow: formatDuration(this.rejoinMs),
               mode: this.readOnly ? 'Read-Only' : 'Read-Write',
               shell: this.shell,
               startPath: this.startPath,
@@ -362,7 +493,7 @@ class Session {
           }
 
           case 'peer-disconnected': {
-            this.log('Client disconnected. Rejoin window: 2 minutes.');
+            this.log(`Client disconnected. Rejoin window: ${formatDuration(this.rejoinMs)}.`);
             this.isClientConnected = false;
             this.awaitingRejoin = true;
             this.sharedKey = null;
@@ -787,7 +918,7 @@ class Session {
         }
 
         case 'peer-disconnected': {
-          this.log('Client disconnected. Rejoin window: 2 minutes.');
+          this.log(`Client disconnected. Rejoin window: ${formatDuration(this.rejoinMs)}.`);
           this.isClientConnected = false;
           this.awaitingRejoin = true;
           this.sharedKey = null;
@@ -958,16 +1089,17 @@ class Session {
 // ─── Session Manager ─────────────────────────────────────────────────────────
 
 class SessionManager {
-  constructor(shell, expiryMs, readOnly, startPath) {
+  constructor(shell, expiryMs, rejoinMs, readOnly, startPath) {
     this.shell = shell;
     this.expiryMs = expiryMs;
+    this.rejoinMs = rejoinMs;
     this.readOnly = readOnly;
     this.startPath = startPath;
     this.sessions = new Map(); // code → Session
   }
 
   async createSession() {
-    const session = new Session(this.shell, this.expiryMs, this.readOnly, this.startPath, (code) => {
+    const session = new Session(this.shell, this.expiryMs, this.rejoinMs, this.readOnly, this.startPath, (code) => {
       this.sessions.delete(code);
     });
 
@@ -1016,20 +1148,27 @@ class SessionManager {
 
 async function main() {
   const shell = detectShell();
-  const expiryMs = getExpiry();
   const readOnly = argv.readonly;
   const startPath = resolveStartPath(argv.path);
 
   // Print startup banner
   printBanner();
-  logger.info(`Shell: ${shell}`);
-  logger.info(`Relays: ${RELAY_URLS.join(', ')}`);
-  logger.info(`Path:  ${startPath}`);
-  if (readOnly) logger.info('Mode:  READ-ONLY');
+
+  // Interactive prompts — always ask unless flags are passed or non-interactive
+  const expiryMs = await getExpiryInteractive();
+  const rejoinMs = await getRejoinInteractive();
+  console.log('');
+
+  logger.info(`Shell:          ${shell}`);
+  logger.info(`Relays:         ${RELAY_URLS.join(', ')}`);
+  logger.info(`Path:           ${startPath}`);
+  logger.info(`Expiry:         ${formatDuration(expiryMs)}`);
+  logger.info(`Rejoin Window:  ${formatDuration(rejoinMs)}`);
+  if (readOnly) logger.info('Mode:           READ-ONLY');
   if (argv.verbose) logger.info('Verbose logging enabled');
   console.log('');
 
-  const manager = new SessionManager(shell, expiryMs, readOnly, startPath);
+  const manager = new SessionManager(shell, expiryMs, rejoinMs, readOnly, startPath);
 
   // Create first session automatically
   const firstCode = await manager.createSession();

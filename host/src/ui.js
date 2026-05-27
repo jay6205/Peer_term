@@ -47,7 +47,7 @@ export function printBanner() {
  * @param {string} [opts.startPath] - Starting directory for the session
  * @param {string} [opts.shareUrl] - URL to share (e.g. "https://peerterm.dev")
  */
-export function printSessionBox({ code, expiry, mode, shell, startPath, shareUrl }) {
+export function printSessionBox({ code, expiry, rejoinWindow, mode, shell, startPath, shareUrl }) {
   const spacedCode = code.split('').join(' ');
   const url = shareUrl || 'https://peerterm.dev';
 
@@ -66,6 +66,7 @@ export function printSessionBox({ code, expiry, mode, shell, startPath, shareUrl
   const infoLines = [
     `   Session Code:  ${spacedCode}`,
     `   Expires in:    ${expiry}`,
+    `   Rejoin Window: ${rejoinWindow}`,
     `   Mode:          ${mode}`,
     `   Shell:         ${shellDisplay}`,
     `   Path:          ${pathDisplay}`,
@@ -98,6 +99,7 @@ Usage: peer-term [options]
 
 Options:
   --expiry <time>     Session expiry time (e.g. 5m, 30s, 1h)  [default: 5m]
+  --rejoin <time>     Reconnection window (e.g. 5m, 1h, 6h)   [default: 2m]
   --readonly          Share in view-only mode
   --path <dir>        Starting directory for the terminal session  [default: home]
   --relay <url>       Custom relay server URL
@@ -108,6 +110,7 @@ Options:
 Examples:
   peer-term                        Start session with defaults
   peer-term --expiry 10m           Custom expiry
+  peer-term --rejoin 30m           Custom reconnection window
   peer-term --readonly             View-only session
   peer-term --path ~/projects      Start in ~/projects
   peer-term --verbose              Debug logs

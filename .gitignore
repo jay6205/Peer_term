@@ -47,3 +47,6 @@ Thumbs.db
 # Binary build output
 host/dist/
 dist/
+
+# Personal files
+resume.md
