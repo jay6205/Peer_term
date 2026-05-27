@@ -60,4 +60,4 @@ peer-term --verbose                    # enable debug logging
 
 ## Keywords
 
-terminal, pty, mobile, web-terminal, remote-terminal, xterm, websocket, ssh-alternative, e2ee, end-to-end-encrypted, mobile-terminal, terminal-sharing, browser-terminal, remote-access, touch-terminal, terminal-emulator, devtools, cli, ai-coding, persistent-sessions, cross-platform-tool, remote-pair-programming, web-based-terminal-access, collaborative-coding, encryption, instant-terminal-sharing, remote-debugging, browser-terminal-emulator, multi-session-support
+terminal, pty, webrtc, p2p, peer-to-peer, terminal-sharing, browser-terminal, web-terminal, remote-terminal, terminal-collaboration, collaborative-terminal, remote-shell, shell-sharing, terminal-streaming, browser-shell, terminal-emulator, xterm, xtermjs, cli, devtools, remote-debugging, pair-programming, collaborative-coding, websocket, e2ee, end-to-end-encrypted, cross-platform, persistent-sessions
