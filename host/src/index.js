@@ -49,6 +49,14 @@ const __dirname = path.dirname(__filename);
 // Load .env from host/ directory (parent of src/)
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
+// Load package.json for version information
+let version = 'unknown';
+try {
+  const pkgPath = path.join(__dirname, '..', 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+  version = pkg.version;
+} catch {}
+
 // ─── CLI Argument Parsing ────────────────────────────────────────────────────
 
 const argv = minimist(process.argv.slice(2), {
@@ -341,7 +349,7 @@ class Session {
     const config = JSON.stringify({
       type: 'session-config',
       readonly: this.readOnly,
-      version: '1.2.0',
+      version: version,
       shell: this.shell,
       startPath: this.startPath,
     });
