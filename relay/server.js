@@ -324,6 +324,11 @@ wss.on('connection', (ws, req) => {
   ws._peerTermIp = clientIp;
   ws.isAlive = true;
 
+  // Native WebSocket protocol pong — reset liveness flag
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
   ws.on('message', (raw) => {
     let msg;
     try {
@@ -635,45 +640,7 @@ wss.on('connection', (ws, req) => {
 
   // ─── Handle disconnections ─────────────────────────────────────────────
   ws.on('close', () => {
-    const code = socketToCode.get(ws);
-    if (!code) return;
-
-    const session = sessions.get(code);
-    if (!session) return;
-
-    // ─── Host disconnected ───────────────────────────────────────────
-    if (ws === session.hostSocket) {
-      console.log(`[session] Host disconnected from session: ${code}`);
-
-      // Don't delete the session — open a 2-minute host rejoin window
-      session.hostDisconnected = true;
-      session.hostRejoinDeadline = Date.now() + (session.rejoinWindowMs || REJOIN_WINDOW_MS);
-      socketToCode.delete(ws);
-
-      // Notify client that host lost connection (but session stays alive)
-      if (session.clientSocket && session.clientSocket.readyState === 1) {
-        session.clientSocket.send(JSON.stringify({ type: 'host-reconnecting' }));
-      }
-
-      console.log(`[session] Host rejoin window open for session ${code} (${Math.round((session.rejoinWindowMs || REJOIN_WINDOW_MS) / 60000)} min)`);
-
-    // ─── Client disconnected ─────────────────────────────────────────
-    } else if (ws === session.clientSocket) {
-      console.log(`[session] Client disconnected from session: ${code}`);
-
-      // Don't delete the session — open a 2-minute rejoin window
-      session.clientDisconnected = true;
-      session.clientSocket = null;
-      session.rejoinDeadline = Date.now() + (session.rejoinWindowMs || REJOIN_WINDOW_MS);
-      socketToCode.delete(ws);
-
-      // Notify host that client disconnected (but session stays alive)
-      if (session.hostSocket && session.hostSocket.readyState === 1) {
-        session.hostSocket.send(JSON.stringify({ type: 'peer-disconnected' }));
-      }
-
-      console.log(`[session] Client rejoin window open for session ${code} (${Math.round((session.rejoinWindowMs || REJOIN_WINDOW_MS) / 60000)} min)`);
-    }
+    handleSocketDisconnect(ws, 'close');
   });
 
   ws.on('error', (err) => {
@@ -695,10 +662,65 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('');
 });
 
+// ─── Shared Socket Disconnect Handler ────────────────────────────────────────
+
+/**
+ * Unified disconnect handler used by both socket.on('close') and
+ * the server-side heartbeat when a dead socket is found.
+ * @param {WebSocket} ws - The disconnected socket
+ * @param {string} source - 'close' or 'heartbeat' for logging
+ */
+function handleSocketDisconnect(ws, source = 'close') {
+  const code = socketToCode.get(ws);
+  if (!code) return;
+
+  const session = sessions.get(code);
+  if (!session) {
+    socketToCode.delete(ws);
+    return;
+  }
+
+  if (ws === session.hostSocket) {
+    markHostDisconnected(code, session, source === 'heartbeat' ? 'dead socket (heartbeat)' : 'disconnect');
+  } else if (ws === session.clientSocket) {
+    markClientDisconnected(code, session, source === 'heartbeat' ? 'dead socket (heartbeat)' : 'disconnect');
+  }
+}
+
+// ─── Server-Side WebSocket Heartbeat (Protocol Ping/Pong) ────────────────────
+
+const WS_PING_INTERVAL_MS = 10000; // 10 seconds
+
+const wsPingInterval = setInterval(() => {
+  wss.clients.forEach((socket) => {
+    if (!socket.isAlive) {
+      const code = socketToCode.get(socket);
+      const role = code ? (() => {
+        const s = sessions.get(code);
+        if (!s) return 'unknown';
+        if (socket === s.hostSocket) return 'host';
+        if (socket === s.clientSocket) return 'client';
+        return 'unknown';
+      })() : 'unregistered';
+
+      console.log(`[heartbeat] Dead socket terminated — role: ${role}, code: ${code || 'none'}`);
+      handleSocketDisconnect(socket, 'heartbeat');
+      socket.terminate();
+      return;
+    }
+
+    socket.isAlive = false;
+    socket.ping();
+  });
+}, WS_PING_INTERVAL_MS);
+
 // ─── Graceful Shutdown ───────────────────────────────────────────────────────
 
 function gracefulShutdown(signal) {
   console.log(`\n[server] Received ${signal}. Shutting down gracefully...`);
+
+  // Stop the server-side heartbeat
+  clearInterval(wsPingInterval);
 
   // Notify all connected clients and hosts
   for (const [code, session] of sessions) {
