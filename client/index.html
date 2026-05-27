@@ -566,13 +566,6 @@
       transform: translateX(40px);
     }
 
-    .toast-icon {
-      flex-shrink: 0;
-      font-size: 14px;
-      line-height: 1;
-      margin-top: 1px;
-    }
-
     .toast-msg {
       flex: 1;
       min-width: 0;
@@ -584,11 +577,6 @@
     .toast.toast-success { border-left-color: var(--success); }
     .toast.toast-warning { border-left-color: var(--warning); }
     .toast.toast-error   { border-left-color: var(--error); }
-
-    .toast.toast-info    .toast-icon { color: #94a3b8; }
-    .toast.toast-success .toast-icon { color: var(--success); }
-    .toast.toast-warning .toast-icon { color: var(--warning); }
-    .toast.toast-error   .toast-icon { color: var(--error); }
 
     @keyframes toastSlideIn {
       from { opacity: 0; transform: translateX(60px); }
@@ -731,12 +719,6 @@
 
     // ─── Toast Notification System ────────────────────────────────────────
     const TOAST_MAX = 4;
-    const TOAST_ICONS = {
-      info:    'ℹ',
-      success: '✓',
-      warning: '⚠',
-      error:   '✕',
-    };
 
     function showToast(message, type = 'info', duration = 4000) {
       // Deduplicate: skip if same message is already visible
@@ -748,7 +730,7 @@
       const el = document.createElement('div');
       el.className = `toast toast-${type}`;
       el.dataset.msg = message;
-      el.innerHTML = `<span class="toast-icon">${TOAST_ICONS[type] || TOAST_ICONS.info}</span><span class="toast-msg">${message}</span>`;
+      el.innerHTML = `<span class="toast-msg">${message}</span>`;
 
       // Click to dismiss
       el.addEventListener('click', () => removeToast(el));
