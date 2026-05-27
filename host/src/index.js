@@ -241,7 +241,7 @@ async function getExpiryInteractive() {
  * Get the reconnection window — from flag, interactive prompt, or silent default.
  */
 async function getRejoinInteractive() {
-  const DEFAULT_REJOIN = 2 * 60 * 1000;       // 2 minutes
+  const DEFAULT_REJOIN = 5 * 60 * 1000;       // 5 minutes
   const MIN_REJOIN     = 5 * 60 * 1000;       // 5 minutes
   const MAX_REJOIN     = 6 * 60 * 60 * 1000;  // 6 hours
 

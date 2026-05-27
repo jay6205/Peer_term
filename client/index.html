@@ -526,6 +526,84 @@
       animation: fadeIn 0.2s ease-out;
     }
     #clipboard-toast.visible { display: block; }
+
+    /* ─── Toast Notification System ─────────────────────────────────── */
+    #toast-container {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 8px;
+      z-index: 9999;
+      pointer-events: none;
+      max-width: 380px;
+    }
+
+    .toast {
+      pointer-events: auto;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      background: rgba(17, 24, 39, 0.92);
+      border: 1px solid var(--border-subtle);
+      border-left: 3px solid var(--text-muted);
+      border-radius: 4px;
+      cursor: pointer;
+      animation: toastSlideIn 0.3s ease-out forwards;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+
+    .toast.removing {
+      opacity: 0;
+      transform: translateX(40px);
+    }
+
+    .toast-icon {
+      flex-shrink: 0;
+      font-size: 14px;
+      line-height: 1;
+      margin-top: 1px;
+    }
+
+    .toast-msg {
+      flex: 1;
+      min-width: 0;
+      word-break: break-word;
+    }
+
+    /* Toast types */
+    .toast.toast-info    { border-left-color: #64748b; }
+    .toast.toast-success { border-left-color: var(--success); }
+    .toast.toast-warning { border-left-color: var(--warning); }
+    .toast.toast-error   { border-left-color: var(--error); }
+
+    .toast.toast-info    .toast-icon { color: #94a3b8; }
+    .toast.toast-success .toast-icon { color: var(--success); }
+    .toast.toast-warning .toast-icon { color: var(--warning); }
+    .toast.toast-error   .toast-icon { color: var(--error); }
+
+    @keyframes toastSlideIn {
+      from { opacity: 0; transform: translateX(60px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Mobile: full width bottom */
+    @media (max-width: 480px) {
+      #toast-container {
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        max-width: none;
+      }
+    }
   </style>
 </head>
 
@@ -626,6 +704,9 @@
   <!-- Clipboard toast -->
   <div id="clipboard-toast"></div>
 
+  <!-- Toast notification container -->
+  <div id="toast-container"></div>
+
   <!-- ═══ JavaScript ═══════════════════════════════════════════════════════ -->
   <script>
     // ─── DOM Elements ──────────────────────────────────────────────────────
@@ -646,6 +727,52 @@
     const kbdToggleBtn    = document.getElementById('kbd-toggle-btn');
     const fontDownBtn     = document.getElementById('font-down-btn');
     const fontUpBtn       = document.getElementById('font-up-btn');
+    const toastContainer  = document.getElementById('toast-container');
+
+    // ─── Toast Notification System ────────────────────────────────────────
+    const TOAST_MAX = 4;
+    const TOAST_ICONS = {
+      info:    'ℹ',
+      success: '✓',
+      warning: '⚠',
+      error:   '✕',
+    };
+
+    function showToast(message, type = 'info', duration = 4000) {
+      // Deduplicate: skip if same message is already visible
+      const existing = toastContainer.querySelectorAll('.toast:not(.removing)');
+      for (const t of existing) {
+        if (t.dataset.msg === message) return;
+      }
+
+      const el = document.createElement('div');
+      el.className = `toast toast-${type}`;
+      el.dataset.msg = message;
+      el.innerHTML = `<span class="toast-icon">${TOAST_ICONS[type] || TOAST_ICONS.info}</span><span class="toast-msg">${message}</span>`;
+
+      // Click to dismiss
+      el.addEventListener('click', () => removeToast(el));
+
+      toastContainer.appendChild(el);
+
+      // Enforce max visible
+      const all = toastContainer.querySelectorAll('.toast:not(.removing)');
+      if (all.length > TOAST_MAX) {
+        removeToast(all[0]);
+      }
+
+      // Auto-remove after duration
+      el._timeout = setTimeout(() => removeToast(el), duration);
+    }
+
+    function removeToast(el) {
+      if (!el || el.classList.contains('removing')) return;
+      clearTimeout(el._timeout);
+      el.classList.add('removing');
+      setTimeout(() => {
+        if (el.parentNode) el.parentNode.removeChild(el);
+      }, 260);
+    }
 
     // ─── State ─────────────────────────────────────────────────────────────
     let ws          = null;
@@ -904,6 +1031,16 @@
             } else {
               setLoading(false);
               showError(msg.msg || 'Connection failed');
+              // Toast for specific error messages
+              if (msg.msg === 'Invalid or expired code') {
+                showToast('Invalid or expired code', 'error');
+              } else if (msg.msg === 'Too many attempts. Try again in 60 seconds.') {
+                showToast('Too many attempts. Try again in 60 seconds.', 'error');
+              } else if (msg.msg === 'Session already in use') {
+                showToast('Session is already in use', 'error');
+              } else if (msg.msg) {
+                showToast(msg.msg, 'error');
+              }
               ws.close();
             }
             break;
@@ -934,12 +1071,14 @@
 
             const ourPubKey = await exportPublicKey(keyPair.publicKey);
             ws.send(JSON.stringify({ type: 'key-exchange', publicKey: ourPubKey }));
+            showToast('Encrypted tunnel active', 'success');
 
             if (isReconnecting) {
               stopReconnecting();
               if (terminal) {
                 terminal.write('\r\n\x1b[1;32m Reconnected\x1b[0m\r\n');
               }
+              showToast('Reconnected', 'success');
               updateStatusDot('green');
               updateConnIndicator('relay');
               startHeartbeat();
@@ -968,6 +1107,7 @@
               hostWaitingForReconnect = false;
               if (terminal) {
                 terminal.write('\r\n\x1b[1;32m Host connection restored.\x1b[0m\r\n');
+                showToast('Host reconnected', 'success');
                 updateStatusDot('green');
                 updateConnIndicator(previousIndicatorState);
               }
@@ -1005,6 +1145,7 @@
               updateStatusDot('red');
               updateConnIndicator('lost');
             }
+            showToast('Host ended the session', 'error', 5000);
             setTimeout(() => resetToConnectScreen(), 3000);
             break;
 
@@ -1019,18 +1160,21 @@
               terminal.write(`\r\n\x1b[1;31m ${expMsg}\x1b[0m\r\n`);
               updateStatusDot('red');
               updateConnIndicator('lost');
+              showToast('Session has ended', 'error', 5000);
             }
             setTimeout(() => resetToConnectScreen(), 3000);
             break;
 
           case 'host-reconnecting':
             waitForHostReconnect();
+            showToast('Host lost connection. Waiting for host to reconnect...', 'warning', 6000);
             break;
           // ─── Host reconnected after IP change/drop ────────────────────
           case 'host-reconnected':
             hostWaitingForReconnect = false;
             if (terminal) {
               terminal.write('\r\n\x1b[1;32m Host reconnected. Resuming session.\x1b[0m\r\n');
+              showToast('Host reconnected', 'success');
               updateStatusDot('green');
               updateConnIndicator(previousIndicatorState);
             }
@@ -1051,6 +1195,7 @@
               stopReconnecting();
               if (terminal) {
                 terminal.write('\r\n\x1b[1;31m Host ended the session.\x1b[0m\r\n');
+                showToast('Host ended the session', 'error', 5000);
                 updateStatusDot('red');
                 updateConnIndicator('lost');
               }
@@ -1058,6 +1203,7 @@
             } else {
               if (terminal) {
                 terminal.write('\r\n\x1b[1;33m Connection lost. Attempting to reconnect...\x1b[0m\r\n');
+                showToast('Connection lost. Attempting to reconnect...', 'warning', 5000);
                 updateStatusDot('yellow');
                 updateConnIndicator('reconnecting');
               }
@@ -1096,6 +1242,7 @@
           cleanupWebRTC();
           if (terminal) {
             terminal.write('\r\n\x1b[1;33m Connection lost. Attempting to reconnect...\x1b[0m\r\n');
+            showToast('Connection lost. Attempting to reconnect...', 'warning', 5000);
             updateStatusDot('yellow');
             updateConnIndicator('reconnecting');
           }
@@ -1122,6 +1269,7 @@
 
       if (isReadOnly) {
         showViewOnlyBadge();
+        showToast('View only mode', 'info');
         pasteBtn.style.display = 'none';
         mobileInput.disabled = true;
         mobileInput.blur();
@@ -1348,6 +1496,7 @@
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(sel).then(() => {
           showCopiedFeedback();
+          showToast('Copied to clipboard', 'success', 2000);
         }).catch(() => {
           fallbackCopy(sel);
         });
@@ -1368,6 +1517,7 @@
         showCopiedFeedback();
       } catch {
         showClipToast('Copy failed. Please copy manually.');
+        showToast('Clipboard access denied', 'error');
       }
     }
 
@@ -1384,6 +1534,7 @@
       try {
         if (!navigator.clipboard || !navigator.clipboard.readText) {
           showClipToast('Clipboard access denied. Please paste manually.');
+          showToast('Clipboard access denied', 'error');
           return;
         }
         const text = await navigator.clipboard.readText();
@@ -1397,6 +1548,7 @@
         }
       } catch {
         showClipToast('Clipboard access denied. Please paste manually.');
+        showToast('Clipboard access denied', 'error');
       }
     }
 
@@ -1605,6 +1757,7 @@
           if (state === 'disconnected' || state === 'failed' || state === 'closed') {
             if (useDataChannel) {
               console.log('[WebRTC] Connection lost — falling back to relay');
+              showToast('Switched to relay connection', 'warning');
               useDataChannel = false;
               updateConnIndicator('relay');
             }
@@ -1621,6 +1774,7 @@
             clearWebRTCTimers();
             useDataChannel = true;
             console.log('[WebRTC] DataChannel open — relay bypassed');
+            showToast('Direct local connection established', 'success');
             updateConnIndicator('direct');
           };
 
@@ -1686,6 +1840,7 @@
             console.log('[WebRTC] Not on same LAN — using relay');
             sendEncryptedSignal({ kind: 'webrtc-abort' });
             cleanupWebRTC();
+            showToast('Connected via relay', 'info');
             updateConnIndicator('relay');
           } else {
             // Same LAN confirmed — wait for DataChannel
@@ -1695,6 +1850,7 @@
               console.log('[WebRTC] DataChannel open timeout — falling back to relay');
               sendEncryptedSignal({ kind: 'webrtc-abort' });
               cleanupWebRTC();
+              showToast('Connected via relay', 'info');
               updateConnIndicator('relay');
             }, DC_OPEN_TIMEOUT_MS);
           }
