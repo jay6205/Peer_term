@@ -493,6 +493,13 @@ class Session {
           }
 
           case 'peer-disconnected': {
+            if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+              this.log('Client relay connection lost; direct DataChannel still active.');
+              this.missedPings = 0;
+              this.startHeartbeat();
+              break;
+            }
+
             this.log(`Client disconnected. Rejoin window: ${formatDuration(this.rejoinMs)}.`);
             this.isClientConnected = false;
             this.awaitingRejoin = true;
@@ -512,10 +519,7 @@ class Session {
 
           case 'rejoined': {
             this.log(`\u2705 Reconnected. Session restored. (code: ${msg.code})`);
-            // Restart heartbeat if client is connected
-            if (this.isClientConnected) {
-              this.startHeartbeat();
-            }
+            await this._restartPeerSessionAfterHostRejoin();
             break;
           }
 
@@ -576,6 +580,12 @@ class Session {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ type: 'heartbeat' }));
       }
+
+      if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+        this.missedPings = 0;
+        return;
+      }
+
       this.missedPings++;
       if (this.missedPings >= MAX_MISSED_PINGS + 1) {
         this.log('Client heartbeat lost. Waiting for reconnect...');
@@ -768,7 +778,7 @@ class Session {
           newWs.send(JSON.stringify({ type: 'host-rejoin', code: this.code, hostToken: this.hostToken }));
         });
 
-        newWs.on('message', (raw) => {
+        newWs.on('message', async (raw) => {
           let msg;
           try {
             msg = JSON.parse(raw.toString());
@@ -786,10 +796,7 @@ class Session {
             // Re-attach the full message handler by wiring up events
             this._attachWsHandlers(newWs);
 
-            // Restart heartbeat if client is connected
-            if (this.isClientConnected) {
-              this.startHeartbeat();
-            }
+            await this._restartPeerSessionAfterHostRejoin();
           } else if (msg.type === 'error') {
             this.log(`Rejoin failed: ${msg.msg}`);
             this._pendingReconnectWs = null;
@@ -850,6 +857,12 @@ class Session {
           }
           this.isClientConnected = true;
           this.missedPings = 0;
+
+          if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+            // Keep existing keys if direct session is healthy
+            this.startHeartbeat();
+            break;
+          }
 
           this.keyPair = await generateKeyPair();
           const pubKeyBase64 = await exportPublicKey(this.keyPair.publicKey);
@@ -918,6 +931,13 @@ class Session {
         }
 
         case 'peer-disconnected': {
+          if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+            this.log('Client relay connection lost; direct DataChannel still active.');
+            this.missedPings = 0;
+            this.startHeartbeat();
+            break;
+          }
+
           this.log(`Client disconnected. Rejoin window: ${formatDuration(this.rejoinMs)}.`);
           this.isClientConnected = false;
           this.awaitingRejoin = true;
@@ -936,9 +956,7 @@ class Session {
 
         case 'rejoined': {
           this.log(`Reconnected. Session restored. (code: ${msg.code})`);
-          if (this.isClientConnected) {
-            this.startHeartbeat();
-          }
+          await this._restartPeerSessionAfterHostRejoin();
           break;
         }
 
@@ -1059,6 +1077,26 @@ class Session {
         }
       }
     });
+  }
+
+  async _restartPeerSessionAfterHostRejoin() {
+    this.missedPings = 0;
+
+    if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+      this.startHeartbeat();
+      return;
+    }
+
+    this.sharedKey = null;
+    this._cleanupWebRTC();
+
+    this.keyPair = await generateKeyPair();
+    const pubKeyBase64 = await exportPublicKey(this.keyPair.publicKey);
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'key-exchange', publicKey: pubKeyBase64 }));
+      this.startHeartbeat();
+    }
   }
 
   _cleanupWebRTC() {

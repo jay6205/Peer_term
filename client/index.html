@@ -1066,6 +1066,12 @@
               updateStatusDot('green');
               updateConnIndicator('relay');
               startHeartbeat();
+            } else if (hostWaitingForReconnect) {
+              hostWaitingForReconnect = false;
+              showToast('Host session restored', 'success');
+              updateStatusDot('green');
+              updateConnIndicator('relay');
+              startHeartbeat();
             } else {
               showTerminal();
             }
@@ -1150,19 +1156,37 @@
             break;
 
           case 'host-reconnecting':
+            if (isWebRTCActive()) {
+              showToast('Relay connection lost. Direct session is still active.', 'warning', 6000);
+              updateStatusDot('green');
+              updateConnIndicator('direct');
+              break;
+            }
             waitForHostReconnect();
             showToast('Host lost connection. Waiting for host to reconnect...', 'warning', 6000);
             break;
           // ─── Host reconnected after IP change/drop ────────────────────
           case 'host-reconnected':
-            hostWaitingForReconnect = false;
+            if (isWebRTCActive()) {
+              hostWaitingForReconnect = false;
+              missedPings = 0;
+              showToast('Relay connection restored', 'success');
+              updateStatusDot('green');
+              updateConnIndicator('direct');
+              startHeartbeat();
+              break;
+            }
+
+            stopHeartbeat();
+            missedPings = 0;
+            sharedKey = null;
+            keyPair = await generateKeyPair();
             if (terminal) {
               terminal.write('\r\n\x1b[1;32m Host reconnected. Resuming session.\x1b[0m\r\n');
               showToast('Host reconnected', 'success');
-              updateStatusDot('green');
-              updateConnIndicator(previousIndicatorState);
+              updateStatusDot('yellow');
+              updateConnIndicator('reconnecting');
             }
-            startHeartbeat();
             break;
 
           // ─── Host disconnected ────────────────────────────────────────
@@ -1220,6 +1244,15 @@
         // If we're in a live session and WS drops unexpectedly, start reconnecting
         if (terminal && !isReconnecting && !sessionEnded) {
           stopHeartbeat();
+
+          if (isWebRTCActive()) {
+            showToast('Relay connection lost. Direct session is still active.', 'warning', 5000);
+            updateStatusDot('green');
+            updateConnIndicator('direct');
+            beginReconnecting();
+            return;
+          }
+
           sharedKey = null;
           keyPair = null;
           // Phase 4: Clean up WebRTC on WS drop
@@ -1864,6 +1897,10 @@
       if (dcTimer) { clearTimeout(dcTimer); dcTimer = null; }
     }
 
+    function isWebRTCActive() {
+      return useDataChannel && dataChannel && dataChannel.readyState === 'open';
+    }
+
     function cleanupWebRTC() {
       clearWebRTCTimers();
       useDataChannel = false;
@@ -1886,6 +1923,12 @@
 
     function waitForHostReconnect(message) {
       if (hostWaitingForReconnect || sessionEnded) return;
+      if (isWebRTCActive()) {
+        missedPings = 0;
+        updateStatusDot('green');
+        updateConnIndicator('direct');
+        return;
+      }
 
       hostWaitingForReconnect = true;
       stopHeartbeat();
@@ -1906,6 +1949,12 @@
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'heartbeat' }));
         }
+
+        if (isWebRTCActive()) {
+          missedPings = 0;
+          return;
+        }
+
         missedPings++;
 
         if (missedPings >= MAX_MISSED + 1) {
