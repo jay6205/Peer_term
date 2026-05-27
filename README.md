@@ -129,11 +129,10 @@ fly deploy
 
 The client is a single `index.html` file located in the `client/` directory.
 
-* **GitHub Pages:** Enable GitHub Pages pointing to the `/client` directory. 
-* **Vercel / Netlify:** Import the repository and set the root directory to `client/`. Zero build configuration is required.
+* **Render / Vercel / Netlify:** Import the repository and set the publish/root directory to `client/`. Zero build configuration is required.
 
-Once deployed, connect to your custom relay using a query parameter:
-`https://YOUR_USERNAME.github.io/peer-term/?relay=wss://your-relay.com`
+Once deployed, viewers can connect using your Render URL:
+`https://your-client-app.onrender.com/?relay=wss://your-relay.com`
 
 ---
 
