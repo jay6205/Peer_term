@@ -666,6 +666,7 @@
         <!-- Mobile controls -->
         <div class="mobile-controls">
           <button id="kbd-toggle-btn" class="toolbar-btn" title="Toggle keyboard">&#9000;&#65039;</button>
+          <button id="tab-btn" class="toolbar-btn" title="Send Tab">Tab</button>
           <button id="font-down-btn" class="toolbar-btn" title="Smaller font">A-</button>
           <button id="font-up-btn" class="toolbar-btn" title="Larger font">A+</button>
           <div class="status-divider"></div>
@@ -715,6 +716,7 @@
     const kbdToggleBtn    = document.getElementById('kbd-toggle-btn');
     const fontDownBtn     = document.getElementById('font-down-btn');
     const fontUpBtn       = document.getElementById('font-up-btn');
+    const tabBtn          = document.getElementById('tab-btn');
     const toastContainer  = document.getElementById('toast-container');
 
     // ─── Toast Notification System ────────────────────────────────────────
@@ -1253,11 +1255,13 @@
         showViewOnlyBadge();
         showToast('View only mode', 'info');
         pasteBtn.style.display = 'none';
+        if (tabBtn) tabBtn.disabled = true;
         mobileInput.disabled = true;
         mobileInput.blur();
       } else {
         hideViewOnlyBadge();
         pasteBtn.style.display = '';
+        if (tabBtn) tabBtn.disabled = false;
         mobileInput.disabled = false;
       }
 
@@ -1593,6 +1597,16 @@
     kbdToggleBtn.addEventListener('click', () => {
       mobileInput.focus();
     });
+
+    // Tab button (mobile only)
+    if (tabBtn) {
+      tabBtn.addEventListener('click', () => {
+        if (isReadOnly) return;
+        tabBtn.classList.add('active');
+        setTimeout(() => tabBtn.classList.remove('active'), 150);
+        sendKeystroke('\t');
+      });
+    }
 
     // Font size buttons
     fontDownBtn.addEventListener('click', () => {
