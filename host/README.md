@@ -57,7 +57,3 @@ peer-term --verbose                    # enable debug logging
 3. Both sides perform an **ECDH key exchange** to derive a shared AES-256-GCM secret
 4. All terminal I/O is encrypted end-to-end — the relay only forwards opaque blobs
 5. If both peers are on the same LAN, a **WebRTC DataChannel** is established to bypass the relay entirely
-
-## Keywords
-
-terminal, pty, webrtc, p2p, peer-to-peer, terminal-sharing, browser-terminal, web-terminal, remote-terminal, terminal-collaboration, collaborative-terminal, remote-shell, shell-sharing, terminal-streaming, browser-shell, terminal-emulator, xterm, xtermjs, cli, devtools, remote-debugging, pair-programming, collaborative-coding, websocket, e2ee, end-to-end-encrypted, cross-platform, persistent-sessions
