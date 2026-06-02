@@ -75,6 +75,24 @@ export async function deriveSharedKey(privateKey, peerPublicKey) {
   );
 }
 
+/**
+ * Compute the short authentication string shown to both users.
+ * The relay can forward keys, but it cannot make a MITM split produce the same
+ * fingerprint on both sides unless the users skip the out-of-band comparison.
+ */
+export async function fingerprintPublicKeys(sessionCode, hostPublicKeyBase64, clientPublicKeyBase64) {
+  const transcript = [
+    'PeerTerm SAS v1',
+    String(sessionCode || ''),
+    String(hostPublicKeyBase64 || ''),
+    String(clientPublicKeyBase64 || ''),
+  ].join('\n');
+
+  const digest = await subtle.digest('SHA-256', new TextEncoder().encode(transcript));
+  const hex = Buffer.from(digest).toString('hex').toUpperCase().slice(0, 16);
+  return hex.match(/.{1,4}/g).join('-');
+}
+
 // ─── Encryption ─────────────────────────────────────────────────────────────
 
 /**
@@ -144,4 +162,3 @@ export async function decrypt(sharedKey, base64data) {
   // 4. Return as string
   return new TextDecoder().decode(plaintext);
 }
-

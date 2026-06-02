@@ -35,6 +35,7 @@ import {
   exportPublicKey,
   importPublicKey,
   deriveSharedKey,
+  fingerprintPublicKeys,
   encrypt,
   decrypt,
 } from './crypto.js';
@@ -312,7 +313,11 @@ class Session {
     this.code = null;
     this.hostToken = null;
     this.keyPair = null;
+    this.hostPublicKeyBase64 = null;
+    this.clientPublicKeyBase64 = null;
     this.sharedKey = null;
+    this.securityFingerprint = null;
+    this.fingerprintAuthorized = false;
     this.ptyProcess = null;
     this.heartbeatInterval = null;
     this.missedPings = 0;
@@ -341,6 +346,76 @@ class Session {
   logDebug(msg) {
     const prefix = this.code ? `[${this.code}]` : '[???]';
     logger.debug(`${prefix} ${msg}`);
+  }
+
+  async _beginKeyExchange() {
+    this.keyPair = await generateKeyPair();
+    this.hostPublicKeyBase64 = await exportPublicKey(this.keyPair.publicKey);
+    this.clientPublicKeyBase64 = null;
+    this.sharedKey = null;
+    this.securityFingerprint = null;
+    this.fingerprintAuthorized = false;
+    this.stopHeartbeat();
+    this._cleanupWebRTC();
+    this.ws.send(JSON.stringify({ type: 'key-exchange', publicKey: this.hostPublicKeyBase64 }));
+  }
+
+  async _completeKeyExchange(clientPublicKeyBase64) {
+    if (!this.keyPair || !this.hostPublicKeyBase64) return;
+
+    this.logDebug('Deriving shared secret...');
+    this.clientPublicKeyBase64 = clientPublicKeyBase64;
+
+    const peerPublicKey = await importPublicKey(clientPublicKeyBase64);
+    this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
+    this.securityFingerprint = await fingerprintPublicKeys(
+      this.code,
+      this.hostPublicKeyBase64,
+      this.clientPublicKeyBase64
+    );
+    this.fingerprintAuthorized = false;
+
+    this._printFingerprintAuthorization();
+  }
+
+  _printFingerprintAuthorization() {
+    console.log('');
+    this.log('Encrypted candidate established. Verify before terminal access.');
+    console.log(`  Fingerprint: ${this.securityFingerprint}`);
+    console.log('  Ask the viewer to compare this exact fingerprint.');
+    console.log(`  Type "a ${this.code}" after it matches, or "k ${this.code}" to kill the session.`);
+    console.log('');
+  }
+
+  async authorizeFingerprint() {
+    if (!this.sharedKey || !this.securityFingerprint) {
+      logger.warn(`Session ${this.code} has no fingerprint awaiting authorization.`);
+      return false;
+    }
+    if (this.fingerprintAuthorized) {
+      logger.info(`Session ${this.code} is already authorized.`);
+      return true;
+    }
+
+    this.fingerprintAuthorized = true;
+    await this._activateSecureSession();
+    return true;
+  }
+
+  async _activateSecureSession() {
+    if (!this.sharedKey || !this.fingerprintAuthorized) return;
+
+    this.log(`Fingerprint authorized: ${this.securityFingerprint}`);
+    this.log('Encrypted tunnel active');
+    await this._sendSessionConfig();
+
+    this.startHeartbeat();
+
+    if (!this.ptyProcess) {
+      this.spawnTerminal();
+    }
+
+    this._initiateWebRTC();
   }
 
   async _sendSessionConfig() {
@@ -430,29 +505,12 @@ class Session {
             this.isClientConnected = true;
             this.missedPings = 0;
 
-            this.keyPair = await generateKeyPair();
-            const pubKeyBase64 = await exportPublicKey(this.keyPair.publicKey);
-            this.ws.send(JSON.stringify({ type: 'key-exchange', publicKey: pubKeyBase64 }));
+            await this._beginKeyExchange();
             break;
           }
 
           case 'key-exchange': {
-            if (!this.keyPair) return;
-            this.logDebug('Deriving shared secret...');
-
-            const peerPublicKey = await importPublicKey(msg.publicKey);
-            this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
-            this.log('Encrypted tunnel active');
-            await this._sendSessionConfig();
-
-            this.startHeartbeat();
-
-            if (!this.ptyProcess) {
-              this.spawnTerminal();
-            }
-
-            // Phase 4: Initiate WebRTC after encryption is ready
-            this._initiateWebRTC();
+            await this._completeKeyExchange(msg.publicKey);
             break;
           }
 
@@ -513,6 +571,10 @@ class Session {
             this.awaitingRejoin = true;
             this.sharedKey = null;
             this.keyPair = null;
+            this.hostPublicKeyBase64 = null;
+            this.clientPublicKeyBase64 = null;
+            this.securityFingerprint = null;
+            this.fingerprintAuthorized = false;
             this.stopHeartbeat();
             // Phase 4: Clean up WebRTC on peer disconnect
             this._cleanupWebRTC();
@@ -601,6 +663,10 @@ class Session {
         this.awaitingRejoin = true;
         this.sharedKey = null;
         this.keyPair = null;
+        this.hostPublicKeyBase64 = null;
+        this.clientPublicKeyBase64 = null;
+        this.securityFingerprint = null;
+        this.fingerprintAuthorized = false;
         this.stopHeartbeat();
       }
     }, HEARTBEAT_INTERVAL_MS);
@@ -872,28 +938,12 @@ class Session {
             break;
           }
 
-          this.keyPair = await generateKeyPair();
-          const pubKeyBase64 = await exportPublicKey(this.keyPair.publicKey);
-          this.ws.send(JSON.stringify({ type: 'key-exchange', publicKey: pubKeyBase64 }));
+          await this._beginKeyExchange();
           break;
         }
 
         case 'key-exchange': {
-          if (!this.keyPair) return;
-          this.logDebug('Deriving shared secret...');
-
-          const peerPublicKey = await importPublicKey(msg.publicKey);
-          this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
-          this.log('Encrypted tunnel active');
-          await this._sendSessionConfig();
-
-          this.startHeartbeat();
-
-          if (!this.ptyProcess) {
-            this.spawnTerminal();
-          }
-
-          this._initiateWebRTC();
+          await this._completeKeyExchange(msg.publicKey);
           break;
         }
 
@@ -951,6 +1001,10 @@ class Session {
           this.awaitingRejoin = true;
           this.sharedKey = null;
           this.keyPair = null;
+          this.hostPublicKeyBase64 = null;
+          this.clientPublicKeyBase64 = null;
+          this.securityFingerprint = null;
+          this.fingerprintAuthorized = false;
           this.stopHeartbeat();
           this._cleanupWebRTC();
           break;
@@ -1096,14 +1150,14 @@ class Session {
     }
 
     this.sharedKey = null;
+    this.hostPublicKeyBase64 = null;
+    this.clientPublicKeyBase64 = null;
+    this.securityFingerprint = null;
+    this.fingerprintAuthorized = false;
     this._cleanupWebRTC();
 
-    this.keyPair = await generateKeyPair();
-    const pubKeyBase64 = await exportPublicKey(this.keyPair.publicKey);
-
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'key-exchange', publicKey: pubKeyBase64 }));
-      this.startHeartbeat();
+      await this._beginKeyExchange();
     }
   }
 
@@ -1120,7 +1174,9 @@ class Session {
     const elapsed = Date.now() - this.createdAt;
     const remaining = Math.max(0, this.expiryMs - elapsed);
     let status = '';
-    if (this.isClientConnected) {
+    if (this.securityFingerprint && !this.fingerprintAuthorized) {
+      status = `verify fingerprint ${this.securityFingerprint}`;
+    } else if (this.isClientConnected) {
       status = 'client connected';
     } else if (this.awaitingRejoin) {
       status = 'awaiting rejoin';
@@ -1182,6 +1238,15 @@ class SessionManager {
     logger.info(`Session ${code} killed.`);
   }
 
+  async authorizeSession(code) {
+    const session = this.sessions.get(code);
+    if (!session) {
+      logger.warn(`Session ${code} not found.`);
+      return;
+    }
+    await session.authorizeFingerprint();
+  }
+
   killAll() {
     for (const [, session] of this.sessions) {
       session.destroy();
@@ -1228,6 +1293,7 @@ async function main() {
   console.log('  Commands:');
   console.log('    [n] New session');
   console.log('    [l] List sessions');
+  console.log('    [a <code>] Authorize verified fingerprint');
   console.log('    [k <code>] Kill session');
   console.log('    [q] Quit all');
   console.log('  ─────────────────────────────────────────');
@@ -1249,6 +1315,9 @@ async function main() {
       await manager.createSession();
     } else if (input === 'l') {
       manager.listSessions();
+    } else if (input.startsWith('a ')) {
+      const code = input.slice(2).trim();
+      await manager.authorizeSession(code);
     } else if (input.startsWith('k ')) {
       const code = input.slice(2).trim();
       manager.killSession(code);
@@ -1258,7 +1327,7 @@ async function main() {
       rl.close();
       process.exit(0);
     } else if (input) {
-      console.log('  Unknown command. Use n, l, k <code>, or q.');
+      console.log('  Unknown command. Use n, l, a <code>, k <code>, or q.');
     }
 
     rl.prompt();

@@ -65,6 +65,7 @@
     let keyPair     = null;
     let sharedKey   = null;
     let sessionCode = '';
+    let fingerprintPromptEl = null;
 
     // Phase 2: Heartbeat & Reconnect state
     let heartbeatInterval = null;
@@ -73,6 +74,7 @@
     let isReconnecting = false;
     let sessionEnded = false;
     let hostWaitingForReconnect = false;
+    let awaitingHostAuthorization = false;
     let previousIndicatorState = 'relay';
     const HEARTBEAT_MS = 5000;
     const MAX_MISSED = 2;
@@ -170,6 +172,29 @@
     }
 
     /**
+     * Compute the short authentication string displayed by both peers.
+     */
+    async function fingerprintPublicKeys(code, hostPublicKeyBase64, clientPublicKeyBase64) {
+      const transcript = [
+        'PeerTerm SAS v1',
+        String(code || ''),
+        String(hostPublicKeyBase64 || ''),
+        String(clientPublicKeyBase64 || ''),
+      ].join('\n');
+
+      const digest = await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(transcript)
+      );
+      const hex = Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('')
+        .toUpperCase()
+        .slice(0, 16);
+      return hex.match(/.{1,4}/g).join('-');
+    }
+
+    /**
      * Encrypt plaintext with AES-256-GCM.
      * Returns base64( random_12_byte_IV + ciphertext ).
      */
@@ -250,6 +275,45 @@
       } else {
         connectBtn.classList.remove('loading');
       }
+    }
+
+    function closeFingerprintPrompt() {
+      if (fingerprintPromptEl && fingerprintPromptEl.parentNode) {
+        fingerprintPromptEl.parentNode.removeChild(fingerprintPromptEl);
+      }
+      fingerprintPromptEl = null;
+    }
+
+    function verifyFingerprint(fingerprint) {
+      closeFingerprintPrompt();
+
+      return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'fingerprint-overlay';
+        overlay.innerHTML = `
+          <div class="fingerprint-dialog" role="dialog" aria-modal="true" aria-labelledby="fingerprint-title">
+            <h2 id="fingerprint-title">Verify host fingerprint</h2>
+            <p>Ask the host to read their fingerprint before terminal access starts.</p>
+            <div class="fingerprint-code">${fingerprint}</div>
+            <div class="fingerprint-actions">
+              <button type="button" class="fingerprint-confirm">I verified it matches</button>
+              <button type="button" class="fingerprint-cancel">Disconnect</button>
+            </div>
+          </div>
+        `;
+
+        const finish = (verified) => {
+          closeFingerprintPrompt();
+          resolve(verified);
+        };
+
+        overlay.querySelector('.fingerprint-confirm').addEventListener('click', () => finish(true));
+        overlay.querySelector('.fingerprint-cancel').addEventListener('click', () => finish(false));
+
+        fingerprintPromptEl = overlay;
+        document.body.appendChild(overlay);
+        overlay.querySelector('.fingerprint-confirm').focus();
+      });
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -349,29 +413,40 @@
           // ─── Key exchange — receive host's public key ─────────────────
           case 'key-exchange': {
             if (!keyPair) return;
-            const peerPubKey = await importPublicKey(msg.publicKey);
+            const hostPublicKey = msg.publicKey;
+            const peerPubKey = await importPublicKey(hostPublicKey);
             sharedKey = await deriveSharedKey(keyPair.privateKey, peerPubKey);
             sessionConfigApplied = false;
 
             const ourPubKey = await exportPublicKey(keyPair.publicKey);
             ws.send(JSON.stringify({ type: 'key-exchange', publicKey: ourPubKey }));
-            showToast('Encrypted tunnel active', 'success');
+
+            const fingerprint = await fingerprintPublicKeys(sessionCode, hostPublicKey, ourPubKey);
+            const verified = await verifyFingerprint(fingerprint);
+            if (!verified) {
+              sessionEnded = true;
+              if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+              resetToConnectScreen();
+              showError('Fingerprint verification cancelled');
+              return;
+            }
+
+            awaitingHostAuthorization = true;
+            showToast('Fingerprint verified. Encrypted tunnel pending host authorization.', 'success', 6000);
 
             if (isReconnecting) {
               stopReconnecting();
               if (terminal) {
-                terminal.write('\r\n\x1b[1;32m Reconnected\x1b[0m\r\n');
+                terminal.write('\r\n\x1b[1;32m Fingerprint verified. Waiting for host authorization...\x1b[0m\r\n');
               }
-              showToast('Reconnected', 'success');
+              showToast('Waiting for host authorization', 'info', 6000);
               updateStatusDot('green');
               updateConnIndicator('relay');
-              startHeartbeat();
             } else if (hostWaitingForReconnect) {
               hostWaitingForReconnect = false;
-              showToast('Host session restored', 'success');
+              showToast('Fingerprint verified. Waiting for host authorization.', 'info', 6000);
               updateStatusDot('green');
               updateConnIndicator('relay');
-              startHeartbeat();
             } else {
               showTerminal();
             }
@@ -608,6 +683,24 @@
       // Trusted: came from the host through the encrypted tunnel.
       sessionConfigApplied = true;
       setReadonly(config.readonly);
+      if (awaitingHostAuthorization) {
+        awaitingHostAuthorization = false;
+        showToast('Host authorized encrypted tunnel', 'success');
+        updateStatusDot('green');
+        updateConnIndicator('relay');
+        startHeartbeat();
+        if (terminal && terminal.cols && terminal.rows) {
+          (async () => {
+            try {
+              const resizeJson = JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows });
+              const payload = await encrypt(sharedKey, resizeJson);
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'data', payload, meta: 'resize' }));
+              }
+            } catch {}
+          })();
+        }
+      }
       console.debug('[PeerTerm] Session config', {
         shell: config.shell,
         startPath: config.startPath,
@@ -629,6 +722,8 @@
           }
         } catch {}
       }
+
+      if (awaitingHostAuthorization) return;
 
       if (terminal) {
         terminal.write(plaintext);
@@ -691,7 +786,7 @@
       fitAddon.fit();
 
       // Send initial terminal dimensions to host so PTY matches browser size
-      if (sharedKey && terminal.cols && terminal.rows) {
+      if (sharedKey && !awaitingHostAuthorization && terminal.cols && terminal.rows) {
         (async () => {
           try {
             const resizeJson = JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows });
@@ -705,7 +800,7 @@
 
       // Handle terminal input → encrypt → send to host
       terminal.onData(async (data) => {
-        if (!sharedKey || isReadOnly || hostWaitingForReconnect) return;
+        if (!sharedKey || isReadOnly || hostWaitingForReconnect || awaitingHostAuthorization) return;
         try {
           const payload = await encrypt(sharedKey, data);
           // Phase 4: Route through DataChannel if active, else relay
@@ -721,7 +816,7 @@
 
       // Terminal resize → encrypt → send to host
       terminal.onResize(async ({ cols, rows }) => {
-        if (!sharedKey) return;
+        if (!sharedKey || awaitingHostAuthorization) return;
         try {
           const resizeJson = JSON.stringify({ type: 'resize', cols, rows });
           const payload = await encrypt(sharedKey, resizeJson);
@@ -796,7 +891,9 @@
       terminal.focus();
 
       // Start heartbeat after terminal is ready
-      startHeartbeat();
+      if (!awaitingHostAuthorization) {
+        startHeartbeat();
+      }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -849,7 +946,7 @@
     }
 
     async function doPaste() {
-      if (!terminal || !sharedKey || isReadOnly) return;
+      if (!terminal || !sharedKey || isReadOnly || awaitingHostAuthorization) return;
       try {
         if (!navigator.clipboard || !navigator.clipboard.readText) {
           showClipToast('Clipboard access denied. Please paste manually.');
@@ -914,7 +1011,7 @@
     }
 
     async function sendKeystroke(data) {
-      if (!sharedKey || isReadOnly || hostWaitingForReconnect) return;
+      if (!sharedKey || isReadOnly || hostWaitingForReconnect || awaitingHostAuthorization) return;
       try {
         const payload = await encrypt(sharedKey, data);
         // Phase 4: Route through DataChannel if active, else relay
@@ -1338,6 +1435,7 @@
       stopReconnecting();
       // Phase 4: Clean up WebRTC
       cleanupWebRTC();
+      closeFingerprintPrompt();
 
       if (terminal) {
         terminal.dispose();
@@ -1359,6 +1457,7 @@
       readOnlyHint = false;
       sessionConfigApplied = false;
       hostWaitingForReconnect = false;
+      awaitingHostAuthorization = false;
       currentFontSize = 14;
 
       // Reset UI

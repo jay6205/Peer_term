@@ -15,7 +15,7 @@
 ## Features
 
 * **Instant Sharing** – Run a single command, get a 6-digit code. Share the code, and the viewer connects instantly via their browser. No port forwarding, SSH keys, or signups.
-* **End-to-End Encrypted** – Every keystroke and terminal output byte is encrypted locally using **AES-256-GCM**. Keys are exchanged via **ECDH P-256**. The relay server only ever sees opaque ciphertext.
+* **End-to-End Encrypted** – Every keystroke and terminal output byte is encrypted locally using **AES-256-GCM**. Keys are exchanged via **ECDH P-256** and authenticated with a short fingerprint that the host and viewer compare before terminal access starts.
 * **Works Everywhere** – The host runs as a Node.js CLI. The client is a lightweight, single-page HTML application that works on any modern browser.
 * **Local P2P (Zero Latency)** – When the host and client are on the same local network, PeerTerm establishes a direct **WebRTC DataChannel**, bypassing the relay server entirely for zero-latency, private connections.
 * **Read-Only Mode** – Perfect for demos, pair debugging, or interviews. Use `--readonly` so viewers can watch your terminal without the ability to execute commands.
@@ -35,8 +35,10 @@ That's it! You will be given a 6-digit session code.
 
 **Connecting as a Viewer:**
 Share the code with your peer. They simply need to visit your client URL and enter the code:
-* **Default Client:** [peerterm.dev](https://peerterm.dev)
+* **Default Client:** [peer-term-relay.onrender.com](https://peer-term-relay.onrender.com)
 * **Self-hosted Relay:** `http://localhost:8080`
+
+When the viewer connects, compare the fingerprint shown in the browser with the fingerprint shown in the host CLI. If it matches, authorize terminal access in the host CLI with `a <code>`.
 
 ---
 
@@ -77,9 +79,9 @@ peer-term --verbose              # Enable debug logging
 ## Architecture & Security
 
 ### How Encryption Works
-When a client joins a session, both the host and client generate fresh **ECDH P-256** key pairs. Public keys are exchanged securely via the relay server. Both sides then independently derive the exact same **AES-256-GCM** shared secret. 
+When a client joins a session, both the host and client generate fresh **ECDH P-256** key pairs. Public keys are exchanged through the relay server. Both sides then independently derive the exact same **AES-256-GCM** shared secret and compute a short fingerprint over the session code and both public keys.
 
-Every single message (terminal output, keystrokes, resize events) is encrypted using this shared secret alongside a fresh, random 12-byte Initialization Vector (IV). The relay server acts as a blind forwarder, passing opaque base64 blobs that it cannot decrypt. 
+The browser blocks until the viewer confirms the fingerprint matches the host, and the host does not start the terminal until the host authorizes the verified fingerprint with `a <code>`. Every single message (terminal output, keystrokes, resize events) is then encrypted using this shared secret alongside a fresh, random 12-byte Initialization Vector (IV). The relay server acts as a blind forwarder, passing opaque base64 blobs that it cannot decrypt after this verification.
 
 Even WebRTC signaling metadata (ICE candidates, SDP offers/answers) is encrypted before being sent over the relay, preventing IP leaks to the relay operator.
 

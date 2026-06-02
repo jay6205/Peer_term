@@ -385,6 +385,97 @@
       color: var(--text-secondary);
     }
 
+    /* ─── Fingerprint Verification ───────────────────────────────────────── */
+    .fingerprint-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 140;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(10, 14, 23, 0.9);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+
+    .fingerprint-dialog {
+      width: min(100%, 440px);
+      padding: 28px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      background: var(--bg-card);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+    }
+
+    .fingerprint-dialog h2 {
+      margin-bottom: 8px;
+      font-size: 18px;
+      font-weight: 650;
+      color: var(--text-primary);
+    }
+
+    .fingerprint-dialog p {
+      margin-bottom: 18px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-secondary);
+    }
+
+    .fingerprint-code {
+      width: 100%;
+      margin-bottom: 20px;
+      padding: 14px 16px;
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      border-radius: 6px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-align: center;
+      overflow-wrap: anywhere;
+    }
+
+    .fingerprint-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .fingerprint-actions button {
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 6px;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .fingerprint-confirm {
+      flex: 1;
+      border: none;
+      background: var(--accent);
+      color: #0a0e17;
+    }
+
+    .fingerprint-cancel {
+      border: 1px solid var(--border-subtle);
+      background: transparent;
+      color: var(--text-secondary);
+    }
+
+    @media (max-width: 480px) {
+      .fingerprint-dialog {
+        padding: 22px;
+      }
+
+      .fingerprint-actions {
+        flex-direction: column;
+      }
+    }
+
     /* ─── Animations ────────────────────────────────────────────────────── */
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(8px); }
