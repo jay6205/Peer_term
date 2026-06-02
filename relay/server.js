@@ -241,15 +241,51 @@ setInterval(() => {
   }
 }, CLEANUP_INTERVAL_MS);
 
-// ─── HTTP Server (serves client HTML) ────────────────────────────────────────
+// ─── Static File MIME Types ──────────────────────────────────────────────────
+
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css':  'text/css; charset=utf-8',
+  '.js':   'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png':  'image/png',
+  '.jpg':  'image/jpeg',
+  '.svg':  'image/svg+xml',
+  '.ico':  'image/x-icon',
+};
+
+const CLIENT_DIR = path.join(__dirname, '..', 'client');
 
 const server = http.createServer((req, res) => {
-  // Serve the client app at root
+  // Health check endpoint
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', sessions: sessions.size }));
+    return;
+  }
+
+  // Resolve the file to serve from the client directory
+  let filePath;
   if (req.url === '/' || req.url === '/index.html') {
-    const clientPath = path.join(__dirname, '..', 'client', 'index.html');
-    fs.readFile(clientPath, (err, data) => {
-      if (err) {
-        // Client not bundled — serve a minimal landing page
+    filePath = path.join(CLIENT_DIR, 'index.html');
+  } else {
+    // Sanitize: resolve and ensure the path stays within CLIENT_DIR
+    const safePath = path.normalize(decodeURIComponent(req.url));
+    filePath = path.join(CLIENT_DIR, safePath);
+    if (!filePath.startsWith(CLIENT_DIR)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      // If index.html is missing, serve the minimal landing page
+      if (req.url === '/' || req.url === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(`<!DOCTYPE html>
 <html lang="en">
@@ -296,21 +332,13 @@ const server = http.createServer((req, res) => {
 </html>`);
         return;
       }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(data);
-    });
-    return;
-  }
-
-  // Health check endpoint
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', sessions: sessions.size }));
-    return;
-  }
-
-  res.writeHead(404);
-  res.end('Not found');
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': contentType });
+    res.end(data);
+  });
 });
 
 // ─── WebSocket Server ────────────────────────────────────────────────────────
