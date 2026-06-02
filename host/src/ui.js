@@ -101,6 +101,7 @@ Options:
   --expiry <time>     Session expiry time (e.g. 5m, 30s, 1h)  [default: 5m]
   --rejoin <time>     Reconnection window (e.g. 5m, 1h, 6h)   [default: 2m]
   --readonly          Share in view-only mode
+  --secure            Enable fingerprint verification for MITM protection
   --path <dir>        Starting directory for the terminal session  [default: home]
   --relay <url>       Custom relay server URL
   --verbose           Enable debug logging
@@ -112,6 +113,7 @@ Examples:
   peer-term --expiry 10m           Custom expiry
   peer-term --rejoin 30m           Custom reconnection window
   peer-term --readonly             View-only session
+  peer-term --secure               Require fingerprint verification
   peer-term --path ~/projects      Start in ~/projects
   peer-term --verbose              Debug logs
   peer-term --relay wss://custom   Use custom relay server

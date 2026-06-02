@@ -421,34 +421,58 @@
             const ourPubKey = await exportPublicKey(keyPair.publicKey);
             ws.send(JSON.stringify({ type: 'key-exchange', publicKey: ourPubKey }));
 
-            const fingerprint = await fingerprintPublicKeys(sessionCode, hostPublicKey, ourPubKey);
-            const verified = await verifyFingerprint(fingerprint);
-            if (!verified) {
-              sessionEnded = true;
-              if (ws && ws.readyState === WebSocket.OPEN) ws.close();
-              resetToConnectScreen();
-              showError('Fingerprint verification cancelled');
-              return;
-            }
+            const isSecureMode = msg.secureMode === true;
 
-            awaitingHostAuthorization = true;
-            showToast('Fingerprint verified. Encrypted tunnel pending host authorization.', 'success', 6000);
-
-            if (isReconnecting) {
-              stopReconnecting();
-              if (terminal) {
-                terminal.write('\r\n\x1b[1;32m Fingerprint verified. Waiting for host authorization...\x1b[0m\r\n');
+            if (isSecureMode) {
+              const fingerprint = await fingerprintPublicKeys(sessionCode, hostPublicKey, ourPubKey);
+              const verified = await verifyFingerprint(fingerprint);
+              if (!verified) {
+                sessionEnded = true;
+                if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+                resetToConnectScreen();
+                showError('Fingerprint verification cancelled');
+                return;
               }
-              showToast('Waiting for host authorization', 'info', 6000);
-              updateStatusDot('green');
-              updateConnIndicator('relay');
-            } else if (hostWaitingForReconnect) {
-              hostWaitingForReconnect = false;
-              showToast('Fingerprint verified. Waiting for host authorization.', 'info', 6000);
-              updateStatusDot('green');
-              updateConnIndicator('relay');
+
+              awaitingHostAuthorization = true;
+              showToast('Fingerprint verified. Encrypted tunnel pending host authorization.', 'success', 6000);
+
+              if (isReconnecting) {
+                stopReconnecting();
+                if (terminal) {
+                  terminal.write('\r\n\x1b[1;32m Fingerprint verified. Waiting for host authorization...\x1b[0m\r\n');
+                }
+                showToast('Waiting for host authorization', 'info', 6000);
+                updateStatusDot('green');
+                updateConnIndicator('relay');
+              } else if (hostWaitingForReconnect) {
+                hostWaitingForReconnect = false;
+                showToast('Fingerprint verified. Waiting for host authorization.', 'info', 6000);
+                updateStatusDot('green');
+                updateConnIndicator('relay');
+              } else {
+                showTerminal();
+              }
             } else {
-              showTerminal();
+              awaitingHostAuthorization = false;
+              showToast('Encrypted tunnel active', 'success');
+
+              if (isReconnecting) {
+                stopReconnecting();
+                if (terminal) {
+                  terminal.write('\r\n\x1b[1;32m Reconnected\x1b[0m\r\n');
+                }
+                showToast('Reconnected', 'success');
+                updateStatusDot('green');
+                updateConnIndicator('relay');
+              } else if (hostWaitingForReconnect) {
+                hostWaitingForReconnect = false;
+                showToast('Host session restored', 'success');
+                updateStatusDot('green');
+                updateConnIndicator('relay');
+              } else {
+                showTerminal();
+              }
             }
             break;
           }

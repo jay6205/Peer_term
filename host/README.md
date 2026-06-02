@@ -14,7 +14,7 @@ This will start a terminal sharing session and give you a 6-digit code.
 
 Share this code with your peer. They can view your terminal by going to https://peer-term-relay-production-9b7a.up.railway.app or https://peer-term-relay.onrender.com and entering the code.
 
-When the viewer connects, both sides will show a short security fingerprint. Compare it over a trusted channel. If it matches, authorize the session in the host CLI:
+If you started the session with `--secure`, both sides will show a short security fingerprint. Compare it over a trusted channel. If it matches, authorize the session in the host CLI:
 
 ```bash
 a <code>
@@ -41,6 +41,7 @@ peer-term                              # starts at home directory
 peer-term --path ~/projects            # starts at ~/projects
 peer-term --path .                     # starts in current directory
 peer-term --readonly                   # view-only session
+peer-term --secure                     # require fingerprint verification
 peer-term --expiry 10m                 # custom expiry time
 peer-term --relay wss://custom         # use a custom relay server
 peer-term --verbose                    # enable debug logging
@@ -49,7 +50,7 @@ peer-term --verbose                    # enable debug logging
 ## Features
 
 - **No Config**: Works instantly. No port forwarding or firewall configuration needed.
-- **End-to-End Encrypted**: Terminal data is encrypted locally using AES-256-GCM with ECDH P-256 key exchange and an out-of-band fingerprint check. The relay never sees plaintext after the fingerprint is verified and authorized.
+- **End-to-End Encrypted**: Terminal data is encrypted locally using AES-256-GCM with ECDH P-256 key exchange. The relay never sees plaintext. A `--secure` flag enables an out-of-band fingerprint check for strict MITM protection.
 - **WebRTC P2P**: Creates a direct Peer-to-Peer connection on the same LAN for zero-latency, relay-free sessions.
 - **Read-Only Mode**: Guests can view your terminal but cannot type commands.
 - **Custom Start Path**: Set the starting directory with `--path`.
@@ -61,6 +62,6 @@ peer-term --verbose                    # enable debug logging
 1. **Host** registers a session on the relay and gets a 6-digit code
 2. **Client** opens the web UI and enters the code
 3. Both sides perform an **ECDH key exchange** to derive a shared AES-256-GCM secret
-4. Both sides compare a short fingerprint, then the host authorizes the verified session with `a <code>`
+4. If `--secure` is used, both sides compare a short fingerprint, then the host authorizes the verified session with `a <code>`
 5. All terminal I/O is encrypted end-to-end — the relay only forwards opaque blobs
 6. If both peers are on the same LAN, a **WebRTC DataChannel** is established to bypass the relay entirely

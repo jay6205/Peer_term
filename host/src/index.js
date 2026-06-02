@@ -61,7 +61,7 @@ try {
 // ─── CLI Argument Parsing ────────────────────────────────────────────────────
 
 const argv = minimist(process.argv.slice(2), {
-  boolean: ['readonly', 'verbose', 'help', 'version'],
+  boolean: ['readonly', 'verbose', 'help', 'version', 'secure'],
   string: ['expiry', 'rejoin', 'relay', 'path'],
   alias: { h: 'help', v: 'version', V: 'verbose' },
 });
@@ -308,6 +308,7 @@ class Session {
     this.readOnly = readOnly;
     this.startPath = startPath;
     this.onDestroy = onDestroy;
+    this.secureMode = argv.secure || false;
 
     this.ws = null;
     this.code = null;
@@ -357,7 +358,11 @@ class Session {
     this.fingerprintAuthorized = false;
     this.stopHeartbeat();
     this._cleanupWebRTC();
-    this.ws.send(JSON.stringify({ type: 'key-exchange', publicKey: this.hostPublicKeyBase64 }));
+    this.ws.send(JSON.stringify({ 
+      type: 'key-exchange', 
+      publicKey: this.hostPublicKeyBase64,
+      secureMode: this.secureMode 
+    }));
   }
 
   async _completeKeyExchange(clientPublicKeyBase64) {
@@ -368,14 +373,19 @@ class Session {
 
     const peerPublicKey = await importPublicKey(clientPublicKeyBase64);
     this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
-    this.securityFingerprint = await fingerprintPublicKeys(
-      this.code,
-      this.hostPublicKeyBase64,
-      this.clientPublicKeyBase64
-    );
-    this.fingerprintAuthorized = false;
 
-    this._printFingerprintAuthorization();
+    if (this.secureMode) {
+      this.securityFingerprint = await fingerprintPublicKeys(
+        this.code,
+        this.hostPublicKeyBase64,
+        this.clientPublicKeyBase64
+      );
+      this.fingerprintAuthorized = false;
+      this._printFingerprintAuthorization();
+    } else {
+      this.fingerprintAuthorized = true;
+      await this._activateSecureSession();
+    }
   }
 
   _printFingerprintAuthorization() {
@@ -486,7 +496,7 @@ class Session {
               code: this.code,
               expiry: formatDuration(this.expiryMs),
               rejoinWindow: formatDuration(this.rejoinMs),
-              mode: this.readOnly ? 'Read-Only' : 'Read-Write',
+              mode: (this.readOnly ? 'Read-Only' : 'Read-Write') + (this.secureMode ? ' (Secure)' : ''),
               shell: this.shell,
               startPath: this.startPath,
               shareUrl: url.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
