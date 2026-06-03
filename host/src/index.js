@@ -721,7 +721,10 @@ class Session {
         if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
           this.webrtc.send(payload);
         } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ type: 'data', payload }));
+          // Backpressure: drop chunk if relay can't keep up (1.25 MB buffer limit)
+          if (this.ws.bufferedAmount < 1.25 * 1024 * 1024) {
+            this.ws.send(JSON.stringify({ type: 'data', payload }));
+          }
         }
       } catch {}
     });

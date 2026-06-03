@@ -30,6 +30,7 @@ const CLEANUP_INTERVAL_MS = 30 * 1000;             // 30 seconds
 const HEARTBEAT_TIMEOUT_MS = 15 * 1000;            // 3 missed 5s heartbeats
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const RATE_LIMIT_BLOCK_MS = 60 * 1000;             // 60 seconds
+const BACKPRESSURE_THRESHOLD = 1.25 * 1024 * 1024;  // 1.25 MB — terminate slow peers
 
 // ─── Session Store ───────────────────────────────────────────────────────────
 // Map<code, session>
@@ -432,6 +433,28 @@ function validateMessage(msg) {
   return null; // valid
 }
 
+// ─── Backpressure Helper ─────────────────────────────────────────────────────
+
+/**
+ * Send to a peer with backpressure check.
+ * If the peer's send buffer exceeds the threshold, the message is dropped
+ * and the peer is terminated to prevent unbounded memory growth.
+ * The terminated socket will trigger the existing rejoin flow.
+ * @returns {boolean} true if sent, false if dropped/terminated
+ */
+function safeSend(peer, data, code, peerRole) {
+  if (!peer || peer.readyState !== 1) return false;
+
+  if (peer.bufferedAmount > BACKPRESSURE_THRESHOLD) {
+    console.log(`[backpressure] ${peerRole} buffer exceeded ${Math.round(BACKPRESSURE_THRESHOLD / 1024)} KB for session ${code} — terminating slow peer`);
+    peer.terminate();
+    return false;
+  }
+
+  peer.send(data);
+  return true;
+}
+
 // ─── WebSocket Server ────────────────────────────────────────────────────────
 
 const wss = new WebSocketServer({
@@ -686,9 +709,7 @@ wss.on('connection', (ws, req) => {
 
         // Forward signal messages between peers — relay doesn't inspect
         const peer = getPeer(session, role);
-        if (peer && peer.readyState === 1) {
-          peer.send(raw.toString());
-        }
+        safeSend(peer, raw.toString(), state.code, role === 'host' ? 'client' : 'host');
         break;
       }
 
@@ -700,9 +721,7 @@ wss.on('connection', (ws, req) => {
 
         // Forward data as-is to the paired peer — relay never reads payload
         const peer = getPeer(session, role);
-        if (peer && peer.readyState === 1) {
-          peer.send(raw.toString());
-        }
+        safeSend(peer, raw.toString(), state.code, role === 'host' ? 'client' : 'host');
         break;
       }
 
