@@ -199,6 +199,7 @@ function resetRateLimit(ip) {
  * 1. Expired codes (no client joined before expiry)
  * 2. Expired rejoin windows (client didn't come back in 2 minutes)
  * 3. Host rejoin window expired (host didn't come back in 2 minutes)
+ * 4. Heartbeat last-seen timeouts (half-open/stale sockets → rejoin state)
  */
 setInterval(() => {
   const now = Date.now();
@@ -237,6 +238,30 @@ setInterval(() => {
       socketToCode.delete(session.hostSocket);
       sessions.delete(code);
       continue;
+    }
+
+    // 4. Enforce heartbeat last-seen timeouts — detect half-open/stale sockets
+    //    that never fired a 'close' event and transition them into rejoin state
+    if (session.clientJoined) {
+      // Check host liveness (only when host is supposedly connected)
+      if (
+        !session.hostDisconnected &&
+        session.hostLastSeen &&
+        now - session.hostLastSeen > HEARTBEAT_TIMEOUT_MS
+      ) {
+        console.log(`[cleanup] Host heartbeat stale for session ${code} (last seen ${Math.round((now - session.hostLastSeen) / 1000)}s ago)`);
+        markHostDisconnected(code, session, 'stale heartbeat (cleanup)');
+      }
+
+      // Check client liveness (only when client is supposedly connected)
+      if (
+        !session.clientDisconnected &&
+        session.clientLastSeen &&
+        now - session.clientLastSeen > HEARTBEAT_TIMEOUT_MS
+      ) {
+        console.log(`[cleanup] Client heartbeat stale for session ${code} (last seen ${Math.round((now - session.clientLastSeen) / 1000)}s ago)`);
+        markClientDisconnected(code, session, 'stale heartbeat (cleanup)');
+      }
     }
   }
 }, CLEANUP_INTERVAL_MS);
