@@ -366,9 +366,79 @@ const server = http.createServer((req, res) => {
   });
 });
 
+// ─── Message Validation ──────────────────────────────────────────────────────
+
+const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_CODE_LEN    = 6;
+const MAX_TOKEN_LEN   = 64;
+const MAX_KEY_LEN     = 256;  // base64-encoded ECDH public key
+
+const MESSAGE_SCHEMAS = {
+  'host-register': {
+    optional: {
+      expiry:       (v) => typeof v === 'number' && v > 0 && v <= 30 * 60 * 1000,
+      rejoinWindow: (v) => typeof v === 'number' && v > 0 && v <= 10 * 60 * 1000,
+      readonly:     (v) => typeof v === 'boolean',
+    },
+  },
+  'client-join': {
+    required: {
+      code: (v) => typeof v === 'string' && /^\d{6}$/.test(v),
+    },
+  },
+  'key-exchange': {
+    required: {
+      publicKey: (v) => typeof v === 'string' && v.length > 0 && v.length <= MAX_KEY_LEN,
+    },
+  },
+  'heartbeat':         {},
+  'heartbeat-timeout':  {},
+  'session-ended':      {},
+  'data': {
+    required: {
+      payload: (v) => typeof v === 'string' && v.length > 0,
+    },
+  },
+  'signal': {
+    required: {
+      signal: (v) => typeof v === 'object' && v !== null,
+    },
+  },
+  'host-rejoin': {
+    required: {
+      code:      (v) => typeof v === 'string' && /^\d{6}$/.test(v),
+      hostToken: (v) => typeof v === 'string' && v.length > 0 && v.length <= MAX_TOKEN_LEN,
+    },
+  },
+};
+
+function validateMessage(msg) {
+  if (!msg || typeof msg.type !== 'string') return 'Missing or invalid type';
+
+  const schema = MESSAGE_SCHEMAS[msg.type];
+  if (!schema) return null; // unknown type — handled by default case in switch
+
+  if (schema.required) {
+    for (const [field, check] of Object.entries(schema.required)) {
+      if (!(field in msg)) return `Missing required field: ${field}`;
+      if (!check(msg[field])) return `Invalid field: ${field}`;
+    }
+  }
+  if (schema.optional) {
+    for (const [field, check] of Object.entries(schema.optional)) {
+      if (field in msg && !check(msg[field])) return `Invalid field: ${field}`;
+    }
+  }
+  return null; // valid
+}
+
 // ─── WebSocket Server ────────────────────────────────────────────────────────
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+  server,
+  maxPayload: MAX_PAYLOAD_BYTES,
+  perMessageDeflate: false,
+});
 
 // Pass `req` to get client IP during upgrade handshake
 wss.on('connection', (ws, req) => {
@@ -388,6 +458,12 @@ wss.on('connection', (ws, req) => {
       msg = JSON.parse(raw.toString());
     } catch {
       ws.send(JSON.stringify({ type: 'error', msg: 'Invalid JSON' }));
+      return;
+    }
+
+    const validationError = validateMessage(msg);
+    if (validationError) {
+      ws.send(JSON.stringify({ type: 'error', msg: validationError }));
       return;
     }
 
@@ -504,7 +580,10 @@ wss.on('connection', (ws, req) => {
         // Forward key-exchange to the other peer
         const peer = getPeer(session, role);
         if (peer && peer.readyState === 1) {
-          peer.send(JSON.stringify(msg));
+          peer.send(JSON.stringify({
+            type: 'key-exchange',
+            publicKey: msg.publicKey,
+          }));
         }
         break;
       }

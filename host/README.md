@@ -14,12 +14,6 @@ This will start a terminal sharing session and give you a 6-digit code.
 
 Share this code with your peer. They can view your terminal by going to https://peer-term-relay-production-9b7a.up.railway.app or https://peer-term-relay.onrender.com and entering the code.
 
-If you started the session with `--secure`, both sides will show a short security fingerprint. Compare it over a trusted channel. If it matches, authorize the session in the host CLI:
-
-```bash
-a <code>
-```
-
 ## Global Installation
 
 If you prefer to install it globally:
