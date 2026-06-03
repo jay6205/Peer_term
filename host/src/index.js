@@ -515,6 +515,11 @@ class Session {
             this.isClientConnected = true;
             this.missedPings = 0;
 
+            if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+              this.startHeartbeat();
+              break;
+            }
+
             await this._beginKeyExchange();
             break;
           }

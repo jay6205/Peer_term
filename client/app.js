@@ -395,6 +395,12 @@
 
           // ─── Host is connected, start key exchange ────────────────────
           case 'host-connected':
+            if (isWebRTCActive()) {
+              console.log('[PeerTerm] WS reconnected, but direct WebRTC is active. Keeping existing session keys.');
+              stopReconnecting();
+              startHeartbeat();
+              break;
+            }
             sessionConfigApplied = false;
             readOnlyHint = msg.readonly === true;
             // UNTRUSTED - relay envelope hint only.
@@ -590,6 +596,10 @@
 
           // ─── Host disconnected ────────────────────────────────────────
           case 'peer-disconnected':
+            if (isWebRTCActive()) {
+              console.log('[PeerTerm] Host relay connection lost, but direct DataChannel is still active.');
+              break;
+            }
             stopHeartbeat();
             sharedKey = null;
             keyPair = null;
