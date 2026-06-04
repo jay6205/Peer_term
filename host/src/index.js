@@ -326,6 +326,7 @@ class Session {
     this.awaitingRejoin = false;
     this.destroyed = false;
     this.intentionalClose = false;
+    this.ptyOutputQueue = Promise.resolve();
     this.reconnectTimer = null;
     this.createdAt = Date.now();
     this.relayUrl = null;  // Track which relay URL we connected to
@@ -708,25 +709,14 @@ class Session {
       env: process.env,
     });
 
-    this.ptyProcess.onData(async (data) => {
+    this.ptyProcess.onData((data) => {
       // Mirror PTY output to local viewer terminal
       if (this.viewerSocket) {
         try { this.viewerSocket.write(data); } catch {}
       }
 
       if (!this.sharedKey) return;
-      try {
-        const payload = await encrypt(this.sharedKey, data);
-        // Phase 4: Route through DataChannel if active, else relay
-        if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
-          this.webrtc.send(payload);
-        } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          // Backpressure: drop chunk if relay can't keep up (1.25 MB buffer limit)
-          if (this.ws.bufferedAmount < 1.25 * 1024 * 1024) {
-            this.ws.send(JSON.stringify({ type: 'data', payload }));
-          }
-        }
-      } catch {}
+      this._queuePtyOutput(data, this.sharedKey);
     });
 
     this.ptyProcess.onExit(({ exitCode }) => {
@@ -742,6 +732,31 @@ class Session {
   }
 
   // ─── Local TCP viewer for host terminal ─────────────────────────────
+  _queuePtyOutput(data, sharedKey) {
+    this.ptyOutputQueue = this.ptyOutputQueue
+      .then(() => this._sendPtyOutput(data, sharedKey))
+      .catch((err) => {
+        this.logDebug(`Failed to send PTY output: ${err.message}`);
+      });
+  }
+
+  async _sendPtyOutput(data, sharedKey) {
+    if (this.destroyed || !sharedKey || sharedKey !== this.sharedKey) return;
+
+    const payload = await encrypt(sharedKey, data);
+    if (this.destroyed || sharedKey !== this.sharedKey) return;
+
+    // Phase 4: Route through DataChannel if active, else relay
+    if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+      this.webrtc.send(payload);
+    } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      // Backpressure: drop chunk if relay can't keep up (1.25 MB buffer limit)
+      if (this.ws.bufferedAmount < 1.25 * 1024 * 1024) {
+        this.ws.send(JSON.stringify({ type: 'data', payload }));
+      }
+    }
+  }
+
   _startViewerServer() {
     this.viewerServer = net.createServer((socket) => {
       // Close any existing viewer connection before accepting a new one
