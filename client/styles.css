@@ -257,6 +257,7 @@
     .security-badge {
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
       margin-top: 24px;
       padding: 8px 14px;
