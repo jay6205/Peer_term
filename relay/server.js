@@ -24,15 +24,27 @@ const __dirname = path.dirname(__filename);
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8080;
-const DEFAULT_EXPIRY_MS = 5 * 60 * 1000;         // 5 minutes
+const DEFAULT_EXPIRY_MS = 5 * 60 * 1000;          // 5 minutes
+const MAX_EXPIRY_MS = 24 * 60 * 60 * 1000;        // 24 hours
 const REJOIN_WINDOW_MS = 2 * 60 * 1000;           // 2 minutes
+const MAX_REJOIN_WINDOW_MS = 6 * 60 * 60 * 1000;  // 6 hours
 const CLEANUP_INTERVAL_MS = 30 * 1000;             // 30 seconds
 const HEARTBEAT_TIMEOUT_MS = 15 * 1000;            // 3 missed 5s heartbeats
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const RATE_LIMIT_BLOCK_MS = 60 * 1000;             // 60 seconds
+const HOST_REGISTER_WINDOW_MS = 60 * 1000;         // 60 seconds
+const HOST_REGISTER_MAX_PER_WINDOW = 10;
+const HOST_REGISTER_BLOCK_MS = 5 * 60 * 1000;      // 5 minutes
+const MAX_SESSIONS = parsePositiveInt(process.env.MAX_SESSIONS, 500);
+const MAX_SESSIONS_PER_IP = parsePositiveInt(process.env.MAX_SESSIONS_PER_IP, 20);
 const BACKPRESSURE_THRESHOLD = 1.25 * 1024 * 1024;  // 1.25 MB — terminate slow peers
 
 // ─── Session Store ───────────────────────────────────────────────────────────
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 // Map<code, session>
 // session shape: {
 //   hostSocket, clientSocket, expiresAt,
@@ -129,6 +141,7 @@ function getPeer(session, role) {
 // ─── Rate Limiting Store ─────────────────────────────────────────────────────
 // Map<ip, { attempts: number, blockedUntil: number | null }>
 const rateLimits = new Map();
+const hostRegisterLimits = new Map();
 
 // ─── Code Generation ─────────────────────────────────────────────────────────
 
@@ -193,6 +206,95 @@ function resetRateLimit(ip) {
   rateLimits.delete(ip);
 }
 
+function getClientIp(req) {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+    return forwardedFor.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function clampDuration(value, defaultMs, maxMs) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return defaultMs;
+  return Math.min(value, maxMs);
+}
+
+function isHostRegisterLimited(ip) {
+  const now = Date.now();
+  let entry = hostRegisterLimits.get(ip);
+
+  if (entry?.blockedUntil) {
+    if (now < entry.blockedUntil) return true;
+    hostRegisterLimits.delete(ip);
+    entry = null;
+  }
+
+  if (!entry || now - entry.windowStart >= HOST_REGISTER_WINDOW_MS) {
+    entry = { count: 0, windowStart: now, blockedUntil: null };
+    hostRegisterLimits.set(ip, entry);
+  }
+
+  entry.count++;
+  if (entry.count > HOST_REGISTER_MAX_PER_WINDOW) {
+    entry.blockedUntil = now + HOST_REGISTER_BLOCK_MS;
+    console.log(`[rate-limit] Host registration IP ${ip} blocked for ${Math.round(HOST_REGISTER_BLOCK_MS / 1000)} seconds`);
+    return true;
+  }
+
+  return false;
+}
+
+function countSessionsForIp(ip) {
+  let count = 0;
+  for (const session of sessions.values()) {
+    if (session.hostIp === ip) count++;
+  }
+  return count;
+}
+
+function destroySession(code, session, reason) {
+  console.log(`[evict] Session ${code} removed: ${reason}`);
+
+  if (session.hostSocket && session.hostSocket.readyState === 1) {
+    try { session.hostSocket.send(JSON.stringify({ type: 'session-expired', msg: reason })); } catch {}
+    try { session.hostSocket.close(); } catch {}
+  }
+  if (session.clientSocket && session.clientSocket.readyState === 1) {
+    try { session.clientSocket.send(JSON.stringify({ type: 'session-ended', msg: reason })); } catch {}
+    try { session.clientSocket.close(); } catch {}
+  }
+
+  socketToCode.delete(session.hostSocket);
+  if (session.clientSocket) socketToCode.delete(session.clientSocket);
+  sessions.delete(code);
+}
+
+function findEvictionCandidate() {
+  const ranked = [...sessions.entries()].map(([code, session]) => {
+    let priority = 2;
+    if (!session.clientJoined) priority = 0;
+    else if (session.hostDisconnected || session.clientDisconnected) priority = 1;
+    return { code, session, priority, createdAt: session.createdAt || 0 };
+  });
+
+  ranked.sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
+  return ranked[0] || null;
+}
+
+function ensureSessionCapacity(ip) {
+  if (countSessionsForIp(ip) >= MAX_SESSIONS_PER_IP) {
+    return { ok: false, reason: 'Too many active sessions from this IP' };
+  }
+
+  while (sessions.size >= MAX_SESSIONS) {
+    const candidate = findEvictionCandidate();
+    if (!candidate) return { ok: false, reason: 'Relay is at capacity' };
+    destroySession(candidate.code, candidate.session, 'Relay capacity limit reached');
+  }
+
+  return { ok: true };
+}
+
 // ─── Cleanup Interval ────────────────────────────────────────────────────────
 
 /**
@@ -205,39 +307,28 @@ function resetRateLimit(ip) {
 setInterval(() => {
   const now = Date.now();
 
+  for (const [ip, entry] of hostRegisterLimits) {
+    const blockExpired = entry.blockedUntil && now >= entry.blockedUntil;
+    const windowExpired = now - entry.windowStart >= HOST_REGISTER_WINDOW_MS;
+    if (blockExpired || (!entry.blockedUntil && windowExpired)) hostRegisterLimits.delete(ip);
+  }
+
   for (const [code, session] of sessions) {
     // 1. Code expired and no client has joined yet
     if (!session.clientJoined && now > session.expiresAt) {
-      console.log(`[cleanup] Session ${code} expired (no client joined)`);
-      if (session.hostSocket && session.hostSocket.readyState === 1) {
-        session.hostSocket.send(JSON.stringify({ type: 'session-expired' }));
-      }
-      socketToCode.delete(session.hostSocket);
-      sessions.delete(code);
+      destroySession(code, session, 'Code expired (no client joined)');
       continue;
     }
 
     // 2. Rejoin window expired — client didn't come back
     if (session.clientDisconnected && session.rejoinDeadline && now > session.rejoinDeadline) {
-      console.log(`[cleanup] Client rejoin window expired for session ${code}`);
-      if (session.hostSocket && session.hostSocket.readyState === 1) {
-        session.hostSocket.send(JSON.stringify({ type: 'session-expired' }));
-      }
-      socketToCode.delete(session.hostSocket);
-      if (session.clientSocket) socketToCode.delete(session.clientSocket);
-      sessions.delete(code);
+      destroySession(code, session, 'Client rejoin window expired');
       continue;
     }
 
     // 3. Host rejoin window expired — host didn't come back
     if (session.hostDisconnected && session.hostRejoinDeadline && now > session.hostRejoinDeadline) {
-      console.log(`[cleanup] Host rejoin window expired for session ${code}`);
-      if (session.clientSocket && session.clientSocket.readyState === 1) {
-        session.clientSocket.send(JSON.stringify({ type: 'session-expired', msg: 'Host did not reconnect in time.' }));
-      }
-      if (session.clientSocket) socketToCode.delete(session.clientSocket);
-      socketToCode.delete(session.hostSocket);
-      sessions.delete(code);
+      destroySession(code, session, 'Host did not reconnect in time');
       continue;
     }
 
@@ -377,8 +468,8 @@ const MAX_KEY_LEN     = 256;  // base64-encoded ECDH public key
 const MESSAGE_SCHEMAS = {
   'host-register': {
     optional: {
-      expiry:       (v) => typeof v === 'number' && v > 0 && v <= 30 * 60 * 1000,
-      rejoinWindow: (v) => typeof v === 'number' && v > 0 && v <= 10 * 60 * 1000,
+      expiry:       (v) => typeof v === 'number' && Number.isFinite(v) && v > 0,
+      rejoinWindow: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0,
       readonly:     (v) => typeof v === 'boolean',
     },
   },
@@ -466,7 +557,7 @@ const wss = new WebSocketServer({
 // Pass `req` to get client IP during upgrade handshake
 wss.on('connection', (ws, req) => {
   // Extract client IP for rate limiting
-  const clientIp = req.socket.remoteAddress || 'unknown';
+  const clientIp = getClientIp(req);
   ws._peerTermIp = clientIp;
   ws.isAlive = true;
 
@@ -495,21 +586,31 @@ wss.on('connection', (ws, req) => {
       case 'host-register': {
         if (!requireUnregisteredSocket(ws, msg.type)) return;
 
-        const expiryMs = (typeof msg.expiry === 'number' && msg.expiry > 0)
-          ? msg.expiry
-          : DEFAULT_EXPIRY_MS;
+        const ip = ws._peerTermIp;
+        if (isHostRegisterLimited(ip)) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Too many host registrations. Try again later.' }));
+          try { ws.close(); } catch {}
+          return;
+        }
 
-        const rejoinWindowMs = (typeof msg.rejoinWindow === 'number' && msg.rejoinWindow > 0)
-          ? msg.rejoinWindow
-          : REJOIN_WINDOW_MS;
+        const capacity = ensureSessionCapacity(ip);
+        if (!capacity.ok) {
+          ws.send(JSON.stringify({ type: 'error', msg: capacity.reason }));
+          try { ws.close(); } catch {}
+          return;
+        }
+
+        const expiryMs = clampDuration(msg.expiry, DEFAULT_EXPIRY_MS, MAX_EXPIRY_MS);
+        const rejoinWindowMs = clampDuration(msg.rejoinWindow, REJOIN_WINDOW_MS, MAX_REJOIN_WINDOW_MS);
 
         const readonly = msg.readonly === true;
         const code = generateCode();
         const hostToken = crypto.randomBytes(32).toString('hex');
+        const now = Date.now();
         sessions.set(code, {
           hostSocket: ws,
           clientSocket: null,
-          expiresAt: Date.now() + expiryMs,
+          expiresAt: now + expiryMs,
           clientJoined: false,
           clientDisconnected: false,
           rejoinDeadline: null,
@@ -520,6 +621,8 @@ wss.on('connection', (ws, req) => {
           hostToken,
           readonly,
           rejoinWindowMs,
+          hostIp: ip,
+          createdAt: now,
         });
         socketToCode.set(ws, code);
 
@@ -688,16 +791,7 @@ wss.on('connection', (ws, req) => {
         if (!state) return;
         const { code, session } = state;
 
-        // Forward to client — this is an intentional end, no rejoin window
-        if (session.clientSocket && session.clientSocket.readyState === 1) {
-          session.clientSocket.send(JSON.stringify({ type: 'session-ended' }));
-        }
-
-        // Clean up the session immediately — host chose to end it
-        console.log(`[session] Host PTY exited, session ended: ${code}`);
-        if (session.clientSocket) socketToCode.delete(session.clientSocket);
-        socketToCode.delete(session.hostSocket);
-        sessions.delete(code);
+        destroySession(code, session, 'Host ended session');
         break;
       }
 
@@ -808,6 +902,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  ║   PeerTerm Relay Server                   ║`);
   console.log(`  ║   Listening on port ${String(PORT).padEnd(24)}║`);
   console.log(`  ║   Client UI: http://localhost:${String(PORT).padEnd(13)}║`);
+  console.log(`  ║   Sessions: max ${String(MAX_SESSIONS).padEnd(6)} per IP ${String(MAX_SESSIONS_PER_IP).padEnd(10)}║`);
   console.log('  ║                                           ║');
   console.log('  ╚═══════════════════════════════════════════╝');
   console.log('');
@@ -875,17 +970,7 @@ function gracefulShutdown(signal) {
 
   // Notify all connected clients and hosts
   for (const [code, session] of sessions) {
-    try {
-      if (session.hostSocket && session.hostSocket.readyState === 1) {
-        session.hostSocket.send(JSON.stringify({ type: 'session-expired' }));
-        session.hostSocket.close();
-      }
-      if (session.clientSocket && session.clientSocket.readyState === 1) {
-        session.clientSocket.send(JSON.stringify({ type: 'session-ended' }));
-        session.clientSocket.close();
-      }
-    } catch {}
-    sessions.delete(code);
+    destroySession(code, session, 'Relay server shutting down');
   }
 
   // Close WebSocket server
