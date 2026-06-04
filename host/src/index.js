@@ -368,25 +368,54 @@ class Session {
 
   async _completeKeyExchange(clientPublicKeyBase64) {
     if (!this.keyPair || !this.hostPublicKeyBase64) return;
-
-    this.logDebug('Deriving shared secret...');
-    this.clientPublicKeyBase64 = clientPublicKeyBase64;
-
-    const peerPublicKey = await importPublicKey(clientPublicKeyBase64);
-    this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
-
-    if (this.secureMode) {
-      this.securityFingerprint = await fingerprintPublicKeys(
-        this.code,
-        this.hostPublicKeyBase64,
-        this.clientPublicKeyBase64
-      );
-      this.fingerprintAuthorized = false;
-      this._printFingerprintAuthorization();
-    } else {
-      this.fingerprintAuthorized = true;
-      await this._activateSecureSession();
+    if (typeof clientPublicKeyBase64 !== 'string' || clientPublicKeyBase64.length === 0) {
+      this._rejectProtocolMessage('Invalid key-exchange public key');
+      return;
     }
+
+    try {
+      this.logDebug('Deriving shared secret...');
+      this.clientPublicKeyBase64 = clientPublicKeyBase64;
+
+      const peerPublicKey = await importPublicKey(clientPublicKeyBase64);
+      this.sharedKey = await deriveSharedKey(this.keyPair.privateKey, peerPublicKey);
+
+      if (this.secureMode) {
+        this.securityFingerprint = await fingerprintPublicKeys(
+          this.code,
+          this.hostPublicKeyBase64,
+          this.clientPublicKeyBase64
+        );
+        this.fingerprintAuthorized = false;
+        this._printFingerprintAuthorization();
+      } else {
+        this.fingerprintAuthorized = true;
+        await this._activateSecureSession();
+      }
+    } catch (err) {
+      this._rejectProtocolMessage(`Invalid key exchange: ${err.message}`);
+    }
+  }
+
+  _rejectProtocolMessage(reason) {
+    this.log(`Protocol error: ${reason}`);
+    this.isClientConnected = false;
+    this.awaitingRejoin = false;
+    this.sharedKey = null;
+    this.keyPair = null;
+    this.hostPublicKeyBase64 = null;
+    this.clientPublicKeyBase64 = null;
+    this.securityFingerprint = null;
+    this.fingerprintAuthorized = false;
+    this.stopHeartbeat();
+    this._cleanupWebRTC();
+    this.destroy();
+  }
+
+  _handleMessageError(err) {
+    const message = err instanceof Error ? err.message : String(err);
+    this.log(`Protocol handler error: ${message}`);
+    this.destroy();
   }
 
   _printFingerprintAuthorization() {
@@ -481,11 +510,16 @@ class Session {
       });
 
       this.ws.on('message', async (raw) => {
+        try {
         let msg;
         try {
           msg = JSON.parse(raw.toString());
         } catch {
           this.log('Invalid message from relay');
+          return;
+        }
+        if (!msg || typeof msg.type !== 'string') {
+          this._rejectProtocolMessage('Malformed relay message');
           return;
         }
 
@@ -613,6 +647,9 @@ class Session {
             this.log(`Error: ${msg.msg}`);
             break;
           }
+        }
+        } catch (err) {
+          this._handleMessageError(err);
         }
       });
 
@@ -910,10 +947,15 @@ class Session {
         });
 
         newWs.on('message', async (raw) => {
+          try {
           let msg;
           try {
             msg = JSON.parse(raw.toString());
           } catch {
+            return;
+          }
+          if (!msg || typeof msg.type !== 'string') {
+            this._rejectProtocolMessage('Malformed relay message');
             return;
           }
 
@@ -934,6 +976,9 @@ class Session {
             this._stopReconnecting();
             this.destroy();
             try { newWs.close(); } catch {}
+          }
+          } catch (err) {
+            this._handleMessageError(err);
           }
         });
 
@@ -970,11 +1015,16 @@ class Session {
    */
   _attachWsHandlers(newWs) {
     newWs.on('message', async (raw) => {
+      try {
       let msg;
       try {
         msg = JSON.parse(raw.toString());
       } catch {
         this.log('Invalid message from relay');
+        return;
+      }
+      if (!msg || typeof msg.type !== 'string') {
+        this._rejectProtocolMessage('Malformed relay message');
         return;
       }
 
@@ -1083,6 +1133,9 @@ class Session {
           this.log(`Error: ${msg.msg}`);
           break;
         }
+      }
+      } catch (err) {
+        this._handleMessageError(err);
       }
     });
 
@@ -1414,7 +1467,6 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
   logger.error(`Unhandled rejection: ${err.message}`, err);
-  process.exit(1);
 });
 
 // ─── Run ─────────────────────────────────────────────────────────────────────
