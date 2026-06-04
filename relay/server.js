@@ -402,7 +402,7 @@ const MESSAGE_SCHEMAS = {
   },
   'signal': {
     required: {
-      signal: (v) => typeof v === 'object' && v !== null,
+      payload: (v) => typeof v === 'string' && v.length > 0,
     },
   },
   'host-rejoin': {
