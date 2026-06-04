@@ -764,6 +764,47 @@
       }
     }
 
+    function markDataChannelInactive(reason) {
+      if (useDataChannel) {
+        console.warn(`[WebRTC] ${reason} — falling back to relay`);
+        useDataChannel = false;
+        updateConnIndicator('relay');
+      }
+    }
+
+    function sendViaRelay(payload, meta) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+
+      const msg = { type: 'data', payload };
+      if (meta) msg.meta = meta;
+
+      try {
+        ws.send(JSON.stringify(msg));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    function sendEncryptedToHost(payload, options = {}) {
+      const directPayload = options.directPayload || payload;
+
+      if (useDataChannel) {
+        if (dataChannel && dataChannel.readyState === 'open') {
+          try {
+            dataChannel.send(directPayload);
+            return true;
+          } catch {
+            markDataChannelInactive('DataChannel send failed');
+          }
+        } else {
+          markDataChannelInactive('DataChannel unavailable');
+        }
+      }
+
+      return sendViaRelay(payload, options.meta);
+    }
+
     function showTerminal() {
       // Hide connect screen, show terminal
       connectScreen.style.display = 'none';
@@ -837,12 +878,7 @@
         if (!sharedKey || isReadOnly || hostWaitingForReconnect || awaitingHostAuthorization) return;
         try {
           const payload = await encrypt(sharedKey, data);
-          // Phase 4: Route through DataChannel if active, else relay
-          if (useDataChannel && dataChannel && dataChannel.readyState === 'open') {
-            dataChannel.send(payload);
-          } else if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'data', payload }));
-          }
+          sendEncryptedToHost(payload);
         } catch (err) {
           console.error('Encryption error:', err);
         }
@@ -854,12 +890,10 @@
         try {
           const resizeJson = JSON.stringify({ type: 'resize', cols, rows });
           const payload = await encrypt(sharedKey, resizeJson);
-          // Phase 4: Route through DataChannel if active, else relay
-          if (useDataChannel && dataChannel && dataChannel.readyState === 'open') {
-            dataChannel.send(JSON.stringify({ _meta: 'resize', payload }));
-          } else if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'data', payload, meta: 'resize' }));
-          }
+          sendEncryptedToHost(payload, {
+            directPayload: JSON.stringify({ _meta: 'resize', payload }),
+            meta: 'resize',
+          });
         } catch {}
       });
 
@@ -990,12 +1024,7 @@
         const text = await navigator.clipboard.readText();
         if (!text) return;
         const payload = await encrypt(sharedKey, text);
-        // Phase 4: Route through DataChannel if active, else relay
-        if (useDataChannel && dataChannel && dataChannel.readyState === 'open') {
-          dataChannel.send(payload);
-        } else if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'data', payload }));
-        }
+        sendEncryptedToHost(payload);
       } catch {
         showClipToast('Clipboard access denied. Please paste manually.');
         showToast('Clipboard access denied', 'error');
@@ -1048,12 +1077,7 @@
       if (!sharedKey || isReadOnly || hostWaitingForReconnect || awaitingHostAuthorization) return;
       try {
         const payload = await encrypt(sharedKey, data);
-        // Phase 4: Route through DataChannel if active, else relay
-        if (useDataChannel && dataChannel && dataChannel.readyState === 'open') {
-          dataChannel.send(payload);
-        } else if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'data', payload }));
-        }
+        sendEncryptedToHost(payload);
       } catch {}
     }
 

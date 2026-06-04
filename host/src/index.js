@@ -648,13 +648,10 @@ class Session {
     try {
       const resizeJson = JSON.stringify({ type: 'resize', cols, rows });
       const payload = await encrypt(this.sharedKey, resizeJson);
-      // Phase 4: Route through DataChannel if active, else relay
-      if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
-        // Send resize as a tagged message so client can distinguish
-        this.webrtc.send(JSON.stringify({ _meta: 'resize', payload }));
-      } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'data', payload, meta: 'resize' }));
-      }
+      this._sendEncryptedToClient(payload, {
+        directPayload: JSON.stringify({ _meta: 'resize', payload }),
+        meta: 'resize',
+      });
     } catch {}
   }
 
@@ -746,14 +743,41 @@ class Session {
     const payload = await encrypt(sharedKey, data);
     if (this.destroyed || sharedKey !== this.sharedKey) return;
 
-    // Phase 4: Route through DataChannel if active, else relay
-    if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
-      this.webrtc.send(payload);
-    } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      // Backpressure: drop chunk if relay can't keep up (1.25 MB buffer limit)
-      if (this.ws.bufferedAmount < 1.25 * 1024 * 1024) {
-        this.ws.send(JSON.stringify({ type: 'data', payload }));
+    this._sendEncryptedToClient(payload, { enforceBackpressure: true });
+  }
+
+  _sendEncryptedToClient(payload, options = {}) {
+    const directPayload = options.directPayload || payload;
+
+    if (this.useDataChannel) {
+      if (this.webrtc && this.webrtc.isActive()) {
+        let sentDirect = false;
+        try {
+          sentDirect = this.webrtc.send(directPayload);
+        } catch {}
+
+        if (sentDirect) return true;
       }
+
+      this.useDataChannel = false;
+      this.log('DataChannel send failed — falling back to relay');
+    }
+
+    return this._sendViaRelay(payload, options);
+  }
+
+  _sendViaRelay(payload, { meta, enforceBackpressure = false } = {}) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    if (enforceBackpressure && this.ws.bufferedAmount >= 1.25 * 1024 * 1024) return false;
+
+    const msg = { type: 'data', payload };
+    if (meta) msg.meta = meta;
+
+    try {
+      this.ws.send(JSON.stringify(msg));
+      return true;
+    } catch {
+      return false;
     }
   }
 
