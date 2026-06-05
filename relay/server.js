@@ -32,12 +32,31 @@ const CLEANUP_INTERVAL_MS = 30 * 1000;             // 30 seconds
 const HEARTBEAT_TIMEOUT_MS = 15 * 1000;            // 3 missed 5s heartbeats
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const RATE_LIMIT_BLOCK_MS = 60 * 1000;             // 60 seconds
+const RATE_LIMIT_ENTRY_TTL_MS = 10 * 60 * 1000;   // 10 minutes — evict stale unblocked entries
+const CODE_RATE_LIMIT_MAX = 10;                    // max failed attempts per code
+const CODE_RATE_LIMIT_BLOCK_MS = 5 * 60 * 1000;   // 5 minutes — block code after too many failures
 const HOST_REGISTER_WINDOW_MS = 60 * 1000;         // 60 seconds
 const HOST_REGISTER_MAX_PER_WINDOW = 10;
 const HOST_REGISTER_BLOCK_MS = 5 * 60 * 1000;      // 5 minutes
 const MAX_SESSIONS = parsePositiveInt(process.env.MAX_SESSIONS, 500);
 const MAX_SESSIONS_PER_IP = parsePositiveInt(process.env.MAX_SESSIONS_PER_IP, 20);
 const BACKPRESSURE_THRESHOLD = 1.25 * 1024 * 1024;  // 1.25 MB — terminate slow peers
+
+// ─── Trusted Proxy Configuration ─────────────────────────────────────────────
+// Comma-separated list of trusted proxy IPs/CIDRs.  When the direct socket
+// connects from one of these addresses the server reads X-Forwarded-For;
+// otherwise it falls back to remoteAddress to prevent IP spoofing.
+const TRUSTED_PROXIES = (() => {
+  const defaults = [
+    '127.0.0.1', '::1', '::ffff:127.0.0.1',      // loopback
+    '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', // RFC 1918
+  ];
+  const env = process.env.TRUSTED_PROXIES;
+  if (typeof env === 'string' && env.trim()) {
+    return env.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return defaults;
+})();
 
 // ─── Session Store ───────────────────────────────────────────────────────────
 function parsePositiveInt(value, fallback) {
@@ -139,9 +158,11 @@ function getPeer(session, role) {
 }
 
 // ─── Rate Limiting Store ─────────────────────────────────────────────────────
-// Map<ip, { attempts: number, blockedUntil: number | null }>
+// Map<ip, { attempts: number, blockedUntil: number | null, firstAttemptAt: number }>
 const rateLimits = new Map();
 const hostRegisterLimits = new Map();
+// Map<code, { attempts: number, blockedUntil: number | null }>
+const codeLimits = new Map();
 
 // ─── Code Generation ─────────────────────────────────────────────────────────
 
@@ -185,14 +206,15 @@ function isRateLimited(ip) {
  * Returns true if the IP is now blocked.
  */
 function recordFailedAttempt(ip) {
+  const now = Date.now();
   let entry = rateLimits.get(ip);
   if (!entry) {
-    entry = { attempts: 0, blockedUntil: null };
+    entry = { attempts: 0, blockedUntil: null, firstAttemptAt: now };
     rateLimits.set(ip, entry);
   }
   entry.attempts++;
   if (entry.attempts >= RATE_LIMIT_MAX_ATTEMPTS) {
-    entry.blockedUntil = Date.now() + RATE_LIMIT_BLOCK_MS;
+    entry.blockedUntil = now + RATE_LIMIT_BLOCK_MS;
     console.log(`[rate-limit] IP ${ip} blocked for 60 seconds after ${entry.attempts} failed attempts`);
     return true;
   }
@@ -206,12 +228,116 @@ function resetRateLimit(ip) {
   rateLimits.delete(ip);
 }
 
-function getClientIp(req) {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
-    return forwardedFor.split(',')[0].trim();
+/**
+ * Check if a session code is currently rate-limited (per-code brute-force protection).
+ * Returns true if blocked, false if allowed.
+ */
+function isCodeRateLimited(code) {
+  const entry = codeLimits.get(code);
+  if (!entry) return false;
+  if (entry.blockedUntil && Date.now() < entry.blockedUntil) return true;
+  if (entry.blockedUntil && Date.now() >= entry.blockedUntil) {
+    codeLimits.delete(code);
+    return false;
   }
-  return req.socket.remoteAddress || 'unknown';
+  return false;
+}
+
+/**
+ * Record a failed attempt against a session code.
+ * Returns true if the code is now blocked.
+ */
+function recordCodeFailedAttempt(code) {
+  let entry = codeLimits.get(code);
+  if (!entry) {
+    entry = { attempts: 0, blockedUntil: null };
+    codeLimits.set(code, entry);
+  }
+  entry.attempts++;
+  if (entry.attempts >= CODE_RATE_LIMIT_MAX) {
+    entry.blockedUntil = Date.now() + CODE_RATE_LIMIT_BLOCK_MS;
+    console.log(`[rate-limit] Code ${code} blocked for ${Math.round(CODE_RATE_LIMIT_BLOCK_MS / 1000)}s after ${entry.attempts} failed attempts`);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Reset per-code rate limit (on successful join).
+ */
+function resetCodeRateLimit(code) {
+  codeLimits.delete(code);
+}
+
+// ─── Trusted Proxy IP Matching ───────────────────────────────────────────────
+
+/**
+ * Parse a CIDR string into a { subnet, prefixLen } for IPv4.
+ * Returns null for non-CIDR plain IPs.
+ */
+function parseCIDR(cidr) {
+  const match = cidr.match(/^(\d+\.\d+\.\d+\.\d+)\/(\d+)$/);
+  if (!match) return null;
+  const parts = match[1].split('.').map(Number);
+  const prefixLen = Number(match[2]);
+  if (parts.some(p => p < 0 || p > 255) || prefixLen < 0 || prefixLen > 32) return null;
+  const subnet = (parts[0] << 24 | parts[1] << 16 | parts[2] << 8 | parts[3]) >>> 0;
+  return { subnet, prefixLen };
+}
+
+/**
+ * Convert an IPv4 string to a 32-bit unsigned integer.
+ * Handles ::ffff: mapped addresses.
+ */
+function ipv4ToInt(ip) {
+  const mapped = ip.replace(/^::ffff:/, '');
+  const parts = mapped.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) return null;
+  return (parts[0] << 24 | parts[1] << 16 | parts[2] << 8 | parts[3]) >>> 0;
+}
+
+/**
+ * Check whether `ip` matches any entry in the TRUSTED_PROXIES list.
+ * Supports exact match and IPv4 CIDR notation.
+ */
+function isTrustedProxy(ip) {
+  if (!ip) return false;
+  const normalised = ip.replace(/^::ffff:/, '');
+  for (const entry of TRUSTED_PROXIES) {
+    // Exact match (handles IPv6 loopback and plain addresses)
+    if (entry === ip || entry === normalised) return true;
+
+    // CIDR match (IPv4 only)
+    const cidr = parseCIDR(entry);
+    if (cidr) {
+      const ipInt = ipv4ToInt(ip);
+      if (ipInt !== null) {
+        const mask = cidr.prefixLen === 0 ? 0 : (~0 << (32 - cidr.prefixLen)) >>> 0;
+        if ((ipInt & mask) === (cidr.subnet & mask)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Extract the real client IP from a request.
+ * Only trusts X-Forwarded-For when the direct connection comes from a
+ * recognised proxy address; otherwise returns remoteAddress to prevent
+ * IP spoofing from untrusted sources.
+ */
+function getClientIp(req) {
+  const directIp = req.socket.remoteAddress || 'unknown';
+
+  if (isTrustedProxy(directIp)) {
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+      // Take the left-most (original client) address
+      return forwardedFor.split(',')[0].trim();
+    }
+  }
+
+  return directIp;
 }
 
 function clampDuration(value, defaultMs, maxMs) {
@@ -307,10 +433,30 @@ function ensureSessionCapacity(ip) {
 setInterval(() => {
   const now = Date.now();
 
+  // Sweep stale host-register entries
   for (const [ip, entry] of hostRegisterLimits) {
     const blockExpired = entry.blockedUntil && now >= entry.blockedUntil;
     const windowExpired = now - entry.windowStart >= HOST_REGISTER_WINDOW_MS;
     if (blockExpired || (!entry.blockedUntil && windowExpired)) hostRegisterLimits.delete(ip);
+  }
+
+  // Sweep stale per-IP rate limit entries (TTL for unblocked entries)
+  for (const [ip, entry] of rateLimits) {
+    if (entry.blockedUntil) {
+      if (now >= entry.blockedUntil) rateLimits.delete(ip);
+    } else if (entry.firstAttemptAt && now - entry.firstAttemptAt >= RATE_LIMIT_ENTRY_TTL_MS) {
+      rateLimits.delete(ip);
+    }
+  }
+
+  // Sweep stale per-code rate limit entries
+  for (const [code, entry] of codeLimits) {
+    // Remove if blocked and block expired, or if the code no longer has a session
+    if (entry.blockedUntil && now >= entry.blockedUntil) {
+      codeLimits.delete(code);
+    } else if (!entry.blockedUntil && !sessions.has(code)) {
+      codeLimits.delete(code);
+    }
   }
 
   for (const [code, session] of sessions) {
@@ -638,9 +784,15 @@ wss.on('connection', (ws, req) => {
         const { code } = msg;
         const ip = ws._peerTermIp;
 
-        // Rate limit check
+        // Per-IP rate limit check
         if (isRateLimited(ip)) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Too many attempts. Try again in 60 seconds.' }));
+          return;
+        }
+
+        // Per-code rate limit check (brute-force protection)
+        if (isCodeRateLimited(code)) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Too many attempts for this code. Try again later.' }));
           return;
         }
 
@@ -650,6 +802,7 @@ wss.on('connection', (ws, req) => {
         if (!session || (!session.clientJoined && Date.now() > session.expiresAt)) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Invalid or expired code' }));
           recordFailedAttempt(ip);
+          recordCodeFailedAttempt(code);
           console.log(`[session] Client tried invalid/expired code: ${code}`);
           return;
         }
@@ -672,6 +825,7 @@ wss.on('connection', (ws, req) => {
           session.hostSocket.send(JSON.stringify({ type: 'client-connected' }));
           ws.send(JSON.stringify({ type: 'host-connected', readonly: session.readonly }));
           resetRateLimit(ip);
+          resetCodeRateLimit(code);
           return;
         }
 
@@ -679,6 +833,7 @@ wss.on('connection', (ws, req) => {
         if (session.clientJoined) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Session already in use' }));
           recordFailedAttempt(ip);
+          recordCodeFailedAttempt(code);
           console.log(`[session] Client tried already-in-use session: ${code}`);
           return;
         }
@@ -693,6 +848,7 @@ wss.on('connection', (ws, req) => {
         session.hostSocket.send(JSON.stringify({ type: 'client-connected' }));
         ws.send(JSON.stringify({ type: 'host-connected', readonly: session.readonly }));
         resetRateLimit(ip);
+        resetCodeRateLimit(code);
         console.log(`[session] Client joined session: ${code}`);
         break;
       }
@@ -826,9 +982,15 @@ wss.on('connection', (ws, req) => {
         const { code } = msg;
         const ip = ws._peerTermIp;
 
-        // Rate limit check
+        // Per-IP rate limit check
         if (isRateLimited(ip)) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Too many attempts. Try again in 60 seconds.' }));
+          return;
+        }
+
+        // Per-code rate limit check
+        if (isCodeRateLimited(code)) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Too many attempts for this code. Try again later.' }));
           return;
         }
 
@@ -837,24 +999,28 @@ wss.on('connection', (ws, req) => {
         if (!session) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Session no longer exists.' }));
           recordFailedAttempt(ip);
+          recordCodeFailedAttempt(code);
           return;
         }
 
         if (!msg.hostToken || msg.hostToken !== session.hostToken) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Invalid host rejoin token.' }));
           recordFailedAttempt(ip);
+          recordCodeFailedAttempt(code);
           return;
         }
 
         if (session.hostRejoinDeadline && Date.now() > session.hostRejoinDeadline) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Rejoin window expired.' }));
           recordFailedAttempt(ip);
+          recordCodeFailedAttempt(code);
           return;
         }
 
         if (!session.hostDisconnected) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Host is already connected.' }));
           recordFailedAttempt(ip);
+          recordCodeFailedAttempt(code);
           return;
         }
 
@@ -874,6 +1040,7 @@ wss.on('connection', (ws, req) => {
         // Confirm to host
         ws.send(JSON.stringify({ type: 'rejoined', code }));
         resetRateLimit(ip);
+        resetCodeRateLimit(code);
         console.log(`[session] Host rejoined session: ${code}`);
         break;
       }
