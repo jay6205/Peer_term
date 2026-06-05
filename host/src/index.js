@@ -22,6 +22,7 @@
 import * as dotenv from 'dotenv';
 import os from 'os';
 import fs from 'fs';
+import crypto from 'crypto';
 import path from 'path';
 import net from 'net';
 import readline from 'readline';
@@ -338,6 +339,7 @@ class Session {
     // Local TCP viewer (new terminal window)
     this.viewerServer = null;
     this.viewerSocket = null;
+    this.viewerToken = null;   // Random nonce for viewer auth
   }
 
   log(msg) {
@@ -819,6 +821,9 @@ class Session {
   }
 
   _startViewerServer() {
+    // Generate a random nonce for viewer authentication
+    this.viewerToken = crypto.randomBytes(16).toString('hex');
+
     this.viewerServer = net.createServer((socket) => {
       // Close any existing viewer connection before accepting a new one
       if (this.viewerSocket) {
@@ -826,66 +831,119 @@ class Session {
         this.viewerSocket.removeAllListeners();
         try { this.viewerSocket.destroy(); } catch {}
       }
-      this.viewerSocket = socket;
-      this.log('Host viewer connected.');
 
-      let recvBuf = '';
+      // ── Token authentication gate ──────────────────────────────────
+      // The first data packet must be the viewer token followed by a newline.
+      // Reject the connection if no valid token arrives within 2 seconds.
+      let authenticated = false;
+      let authBuf = '';
 
-      socket.on('data', (data) => {
-        const chunk = data.toString();
-        
-        // Control messages start with \x00{
-        if (recvBuf.length > 0 || chunk.startsWith('\x00{')) {
-          recvBuf += chunk;
-          let newlineIdx;
-          while ((newlineIdx = recvBuf.indexOf('\n')) !== -1) {
-            const line = recvBuf.slice(0, newlineIdx).trim();
-            recvBuf = recvBuf.slice(newlineIdx + 1);
-            
-            if (line.startsWith('\x00')) {
-              try {
-                const msg = JSON.parse(line.slice(1));
-                if (msg.type === 'resize' && 
-                    Number.isInteger(msg.cols) && msg.cols > 0 && 
-                    Number.isInteger(msg.rows) && msg.rows > 0 && 
-                    this.ptyProcess) {
-                  this.ptyProcess.resize(msg.cols, msg.rows);
-                  this._sendResize(msg.cols, msg.rows);
-                  this.logDebug(`Viewer resized to ${msg.cols}x${msg.rows}`);
-                }
-              } catch {}
-            } else if (this.ptyProcess) {
-               this.ptyProcess.write(line + '\n');
-            }
-          }
-          // Flush any non-control data left in the buffer
-          if (recvBuf.length > 0 && !recvBuf.startsWith('\x00')) {
-             if (this.ptyProcess) this.ptyProcess.write(recvBuf);
-             recvBuf = '';
+      const authTimeout = setTimeout(() => {
+        if (!authenticated) {
+          this.logDebug('Viewer auth timeout — closing connection.');
+          try { socket.destroy(); } catch {}
+        }
+      }, 2000);
+
+      const onAuthData = (data) => {
+        authBuf += data.toString();
+        const newlineIdx = authBuf.indexOf('\n');
+        if (newlineIdx === -1) {
+          // Accumulated too much data without a newline — reject
+          if (authBuf.length > 256) {
+            clearTimeout(authTimeout);
+            this.logDebug('Viewer auth buffer overflow — closing connection.');
+            try { socket.destroy(); } catch {}
           }
           return;
         }
 
-        // Host keystrokes → PTY (host always has access)
-        if (this.ptyProcess) {
-          this.ptyProcess.write(data);
-        }
-      });
+        const token = authBuf.slice(0, newlineIdx).trim();
+        const remaining = authBuf.slice(newlineIdx + 1);
+        clearTimeout(authTimeout);
+        socket.removeListener('data', onAuthData);
 
-      socket.on('close', () => {
-        this.viewerSocket = null;
-        this.logDebug('Host viewer disconnected.');
-      });
+        if (token !== this.viewerToken) {
+          this.logDebug('Viewer auth failed — wrong token.');
+          try { socket.destroy(); } catch {}
+          return;
+        }
+
+        // Authenticated — promote to active viewer
+        authenticated = true;
+        this.viewerSocket = socket;
+        this.log('Host viewer connected (authenticated).');
+
+        // Install the real data handler
+        let recvBuf = '';
+
+        // Process any leftover data that arrived after the token line
+        if (remaining.length > 0) {
+          handleViewerData(remaining);
+        }
+
+        socket.on('data', (chunk) => handleViewerData(chunk.toString()));
+
+        const handleViewerData = (chunk) => {
+          // Control messages start with \x00{
+          if (recvBuf.length > 0 || chunk.startsWith('\x00{')) {
+            recvBuf += chunk;
+            let nlIdx;
+            while ((nlIdx = recvBuf.indexOf('\n')) !== -1) {
+              const line = recvBuf.slice(0, nlIdx).trim();
+              recvBuf = recvBuf.slice(nlIdx + 1);
+
+              if (line.startsWith('\x00')) {
+                try {
+                  const msg = JSON.parse(line.slice(1));
+                  if (msg.type === 'resize' &&
+                      Number.isInteger(msg.cols) && msg.cols > 0 &&
+                      Number.isInteger(msg.rows) && msg.rows > 0 &&
+                      this.ptyProcess) {
+                    this.ptyProcess.resize(msg.cols, msg.rows);
+                    this._sendResize(msg.cols, msg.rows);
+                    this.logDebug(`Viewer resized to ${msg.cols}x${msg.rows}`);
+                  }
+                } catch {}
+              } else if (this.ptyProcess) {
+                 this.ptyProcess.write(line + '\n');
+              }
+            }
+            // Flush any non-control data left in the buffer
+            if (recvBuf.length > 0 && !recvBuf.startsWith('\x00')) {
+               if (this.ptyProcess) this.ptyProcess.write(recvBuf);
+               recvBuf = '';
+            }
+            return;
+          }
+
+          // Host keystrokes → PTY (host always has access)
+          if (this.ptyProcess) {
+            this.ptyProcess.write(chunk);
+          }
+        };
+
+        socket.on('close', () => {
+          this.viewerSocket = null;
+          this.logDebug('Host viewer disconnected.');
+        });
+
+        socket.on('error', () => {
+          this.viewerSocket = null;
+        });
+      };
+
+      socket.on('data', onAuthData);
 
       socket.on('error', () => {
-        this.viewerSocket = null;
+        clearTimeout(authTimeout);
       });
     });
 
     this.viewerServer.listen(0, '127.0.0.1', () => {
       const port = this.viewerServer.address().port;
       this.logDebug(`Viewer server on port ${port}`);
-      this._openViewerTerminal(port);
+      this._openViewerTerminal(port, this.viewerToken);
     });
 
     this.viewerServer.on('error', (err) => {
@@ -894,7 +952,7 @@ class Session {
     });
   }
 
-  _openViewerTerminal(port) {
+  _openViewerTerminal(port, token) {
     if (!/^[A-Za-z0-9_-]+$/.test(this.code)) {
       this.log('Invalid session code format. Aborting viewer terminal.');
       return;
@@ -904,12 +962,12 @@ class Session {
     const platform = os.platform();
 
     if (platform === 'win32') {
-      cpExec(`start "PeerTerm - ${this.code}" cmd /c node "${viewerScript}" ${port} ${this.code}`);
+      cpExec(`start "PeerTerm - ${this.code}" cmd /c node "${viewerScript}" ${port} ${this.code} ${token}`);
     } else if (platform === 'darwin') {
-      cpExec(`osascript -e 'tell app "Terminal" to do script "node \"${viewerScript}\" ${port} ${this.code}"'`);
+      cpExec(`osascript -e 'tell app "Terminal" to do script "node \"${viewerScript}\" ${port} ${this.code} ${token}"'`);
     } else {
       // Linux: try common terminal emulators
-      cpExec(`x-terminal-emulator -e "node '${viewerScript}' ${port} ${this.code}" 2>/dev/null || gnome-terminal -- node "${viewerScript}" ${port} ${this.code} 2>/dev/null || xterm -e "node '${viewerScript}' ${port} ${this.code}"`);
+      cpExec(`x-terminal-emulator -e "node '${viewerScript}' ${port} ${this.code} ${token}" 2>/dev/null || gnome-terminal -- node "${viewerScript}" ${port} ${this.code} ${token} 2>/dev/null || xterm -e "node '${viewerScript}' ${port} ${this.code} ${token}"`);
     }
     this.log('Opening terminal viewer...');
   }
