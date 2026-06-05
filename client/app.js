@@ -76,9 +76,12 @@
     let hostWaitingForReconnect = false;
     let awaitingHostAuthorization = false;
     let previousIndicatorState = 'relay';
+    let reconnectDeadline = null;          // Timestamp: stop retrying after this
+    let inflightReconnectWs = null;        // Track the in-flight reconnect socket
     const HEARTBEAT_MS = 5000;
     const MAX_MISSED = 2;
     const RECONNECT_MS = 5000;
+    const RECONNECT_WINDOW_MS = 2 * 60 * 1000; // 2 minutes — matches relay rejoin window
 
     // Phase 3: Feature state
     let isReadOnly = false;
@@ -332,6 +335,8 @@
 
     /**
      * Core WebSocket connection logic. Extracted so reconnect can call it too.
+     * When called during reconnection, closes any in-flight reconnect socket
+     * first to prevent overlapping WebSockets.
      */
     function connectToRelay(code, urlIndex = 0) {
       if (urlIndex >= RELAY_URLS.length) {
@@ -340,17 +345,46 @@
         return;
       }
 
+      // Close any in-flight reconnect socket to prevent overlapping connections
+      if (inflightReconnectWs) {
+        try {
+          inflightReconnectWs.onopen = null;
+          inflightReconnectWs.onmessage = null;
+          inflightReconnectWs.onerror = null;
+          inflightReconnectWs.onclose = null;
+          if (inflightReconnectWs.readyState === WebSocket.CONNECTING ||
+              inflightReconnectWs.readyState === WebSocket.OPEN) {
+            inflightReconnectWs.close();
+          }
+        } catch {}
+        inflightReconnectWs = null;
+      }
+
       const url = RELAY_URLS[urlIndex];
-      ws = new WebSocket(url);
+      const newWs = new WebSocket(url);
+      ws = newWs;
+
+      // Track this socket during reconnection so we can abort it later
+      if (isReconnecting) {
+        inflightReconnectWs = newWs;
+      }
       
       let isConnected = false;
 
-      ws.onopen = () => {
+      newWs.onopen = () => {
+        // Stale socket — a newer attempt superseded us
+        if (ws !== newWs) {
+          try { newWs.close(); } catch {}
+          return;
+        }
         isConnected = true;
-        ws.send(JSON.stringify({ type: 'client-join', code }));
+        newWs.send(JSON.stringify({ type: 'client-join', code }));
       };
 
-      ws.onmessage = async (event) => {
+      newWs.onmessage = async (event) => {
+        // Stale socket guard
+        if (ws !== newWs) return;
+
         let msg;
         try {
           msg = JSON.parse(event.data);
@@ -364,7 +398,7 @@
             if (isReconnecting) {
               if (msg.msg === 'Session already in use' || msg.msg === 'Host is reconnecting. Try again shortly.') {
                 // Transient reconnect state; retry on the next reconnect tick.
-                if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+                if (newWs.readyState === WebSocket.OPEN) newWs.close();
                 return;
               }
               // During reconnect, errors mean session is gone
@@ -389,12 +423,15 @@
               } else if (msg.msg) {
                 showToast(msg.msg, 'error');
               }
-              ws.close();
+              newWs.close();
             }
             break;
 
           // ─── Host is connected, start key exchange ────────────────────
           case 'host-connected':
+            // Reconnect succeeded — clear in-flight tracking
+            if (inflightReconnectWs === newWs) inflightReconnectWs = null;
+
             if (isWebRTCActive()) {
               console.log('[PeerTerm] WS reconnected, but direct WebRTC is active. Keeping existing session keys.');
               stopReconnecting();
@@ -425,7 +462,7 @@
             sessionConfigApplied = false;
 
             const ourPubKey = await exportPublicKey(keyPair.publicKey);
-            ws.send(JSON.stringify({ type: 'key-exchange', publicKey: ourPubKey }));
+            newWs.send(JSON.stringify({ type: 'key-exchange', publicKey: ourPubKey }));
 
             const isSecureMode = msg.secureMode === true;
 
@@ -630,7 +667,10 @@
         }
       };
 
-      ws.onerror = () => {
+      newWs.onerror = () => {
+        // Stale socket guard
+        if (ws !== newWs) return;
+
         if (!isConnected && urlIndex + 1 < RELAY_URLS.length) {
           // Silent fallback to next relay
           connectToRelay(code, urlIndex + 1);
@@ -642,7 +682,13 @@
         }
       };
 
-      ws.onclose = () => {
+      newWs.onclose = () => {
+        // Stale socket guard
+        if (ws !== newWs) return;
+
+        // Clean up in-flight tracking
+        if (inflightReconnectWs === newWs) inflightReconnectWs = null;
+
         if (!isConnected && urlIndex + 1 < RELAY_URLS.length) {
           // Fallback is handled by onerror usually, but we abort here just in case
           return;
@@ -1447,6 +1493,7 @@
     function beginReconnecting() {
       if (isReconnecting || sessionEnded) return;
       isReconnecting = true;
+      reconnectDeadline = Date.now() + RECONNECT_WINDOW_MS;
 
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
@@ -1454,15 +1501,45 @@
 
       reconnectInterval = setInterval(() => {
         if (sessionEnded) { stopReconnecting(); return; }
+
+        // Stop retrying once the rejoin window has expired
+        if (reconnectDeadline && Date.now() > reconnectDeadline) {
+          console.log('[PeerTerm] Reconnect deadline exceeded — giving up');
+          stopReconnecting();
+          if (terminal) {
+            terminal.write('\r\n\x1b[1;31m Reconnect window expired. Session has ended.\x1b[0m\r\n');
+            updateStatusDot('red');
+            updateConnIndicator('lost');
+            showToast('Reconnect window expired', 'error', 5000);
+          }
+          setTimeout(() => resetToConnectScreen(), 3000);
+          return;
+        }
+
         connectToRelay(sessionCode);
       }, RECONNECT_MS);
     }
 
     function stopReconnecting() {
       isReconnecting = false;
+      reconnectDeadline = null;
       if (reconnectInterval) {
         clearInterval(reconnectInterval);
         reconnectInterval = null;
+      }
+      // Clean up any in-flight reconnect socket
+      if (inflightReconnectWs) {
+        try {
+          inflightReconnectWs.onopen = null;
+          inflightReconnectWs.onmessage = null;
+          inflightReconnectWs.onerror = null;
+          inflightReconnectWs.onclose = null;
+          if (inflightReconnectWs.readyState === WebSocket.CONNECTING ||
+              inflightReconnectWs.readyState === WebSocket.OPEN) {
+            inflightReconnectWs.close();
+          }
+        } catch {}
+        inflightReconnectWs = null;
       }
     }
 
