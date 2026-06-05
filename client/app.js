@@ -90,6 +90,9 @@
     let currentFontSize = 14;
     const isMobile = navigator.maxTouchPoints > 0;
 
+    // Disposable listener removers — cleaned up in resetToConnectScreen()
+    let terminalDisposables = [];
+
     // Phase 4: WebRTC state
     let peerConnection = null;
     let dataChannel = null;
@@ -943,16 +946,16 @@
         } catch {}
       });
 
-      // Handle window resize → refit terminal
-      window.addEventListener('resize', () => {
-        if (fitAddon) fitAddon.fit();
-      });
+      // Handle window resize → refit terminal (tracked for cleanup)
+      const onWindowResize = () => { if (fitAddon) fitAddon.fit(); };
+      window.addEventListener('resize', onWindowResize);
+      terminalDisposables.push(() => window.removeEventListener('resize', onWindowResize));
 
       // ─── Clipboard: Copy on selection ──────────────────────────────────
       let lastMouseUp = { x: 0, y: 0 };
-      terminalEl.addEventListener('mouseup', (e) => {
-        lastMouseUp = { x: e.clientX, y: e.clientY };
-      });
+      const onMouseUp = (e) => { lastMouseUp = { x: e.clientX, y: e.clientY }; };
+      terminalEl.addEventListener('mouseup', onMouseUp);
+      terminalDisposables.push(() => terminalEl.removeEventListener('mouseup', onMouseUp));
 
       terminal.onSelectionChange(() => {
         const sel = terminal.getSelection();
@@ -995,9 +998,9 @@
 
       // ─── Mobile: tap terminal to focus hidden input ────────────────────
       if (isMobile) {
-        terminalEl.addEventListener('touchstart', () => {
-          mobileInput.focus();
-        });
+        const onTouchStart = () => { mobileInput.focus(); };
+        terminalEl.addEventListener('touchstart', onTouchStart);
+        terminalDisposables.push(() => terminalEl.removeEventListener('touchstart', onTouchStart));
         setupMobileInput();
       }
 
@@ -1088,7 +1091,7 @@
     // ═════════════════════════════════════════════════════════════════════════
 
     function setupMobileInput() {
-      mobileInput.addEventListener('input', (e) => {
+      const onMobileInput = (e) => {
         if (!terminal || isReadOnly) return;
         const data = e.data;
         if (data) {
@@ -1097,9 +1100,11 @@
           sendKeystroke(data);
         }
         mobileInput.value = '';
-      });
+      };
+      mobileInput.addEventListener('input', onMobileInput);
+      terminalDisposables.push(() => mobileInput.removeEventListener('input', onMobileInput));
 
-      mobileInput.addEventListener('keydown', (e) => {
+      const onMobileKeydown = (e) => {
         if (!terminal || isReadOnly) return;
         let seq = null;
         switch (e.key) {
@@ -1116,7 +1121,9 @@
           terminal.paste(seq);
           sendKeystroke(seq);
         }
-      });
+      };
+      mobileInput.addEventListener('keydown', onMobileKeydown);
+      terminalDisposables.push(() => mobileInput.removeEventListener('keydown', onMobileKeydown));
     }
 
     async function sendKeystroke(data) {
@@ -1571,6 +1578,12 @@
       // Phase 4: Clean up WebRTC
       cleanupWebRTC();
       closeFingerprintPrompt();
+
+      // Remove all DOM event listeners added during showTerminal()
+      for (const dispose of terminalDisposables) {
+        try { dispose(); } catch {}
+      }
+      terminalDisposables = [];
 
       if (terminal) {
         terminal.dispose();
