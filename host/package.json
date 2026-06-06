@@ -1,8 +1,17 @@
 {
   "name": "peer-term",
-  "version": "1.2.13",
+  "version": "1.2.14",
   "license": "MIT",
   "description": "Share your terminal instantly using a 6-digit code. Encrypted. No config.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jay6205/Peer_Term",
+    "directory": "host"
+  },
+  "homepage": "https://github.com/jay6205/Peer_Term#readme",
+  "bugs": {
+    "url": "https://github.com/jay6205/Peer_Term/issues"
+  },
   "keywords": [
     "terminal",
     "pty",
