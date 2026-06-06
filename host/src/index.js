@@ -909,6 +909,13 @@ class Session {
         this._finalizeFile(msg.id);
         break;
       }
+      case 'file-cancel': {
+        if (this._incomingFiles[msg.id]) {
+          delete this._incomingFiles[msg.id];
+          this.log(`File upload cancelled by client: ${msg.id}`);
+        }
+        break;
+      }
     }
   }
 

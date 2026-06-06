@@ -1510,7 +1510,16 @@
       const id = generateUploadId();
       const totalChunks = Math.ceil(file.size / FILE_CHUNK_SIZE) || 1; // at least 1 chunk for empty files
 
-      activeUpload = { id, name: file.name, size: file.size, totalChunks, sentChunks: 0 };
+      activeUpload = { id, name: file.name, size: file.size, totalChunks, sentChunks: 0, aborted: false };
+
+      const timeoutId = setTimeout(() => {
+        if (activeUpload && activeUpload.id === id) {
+          activeUpload.aborted = true;
+          sendFileMessage({ type: 'file-cancel', id });
+          showToast(`Upload timed out after 2 minutes`, 'error');
+          resetUploadUI();
+        }
+      }, 2 * 60 * 1000);
 
       // Show progress UI
       uploadFilename.textContent = file.name;
@@ -1531,6 +1540,10 @@
           const end = Math.min(start + FILE_CHUNK_SIZE, bytes.length);
           const chunk = bytes.slice(start, end);
 
+          if (activeUpload.aborted) {
+            break;
+          }
+
           // Convert chunk to base64
           const base64 = btoa(String.fromCharCode(...chunk));
 
@@ -1549,12 +1562,16 @@
           uploadPercent.textContent = `${pct}%`;
         }
 
-        // Send file-end
-        await sendFileMessage({ type: 'file-end', id });
+        if (!activeUpload.aborted) {
+          // Send file-end
+          await sendFileMessage({ type: 'file-end', id });
+        }
       } catch (err) {
         console.error('[FileUpload] Read/send error:', err);
         showToast(`Upload failed: ${err.message}`, 'error');
         resetUploadUI();
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 
