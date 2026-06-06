@@ -104,6 +104,20 @@
         <span>Encrypted</span>
       </div>
     </div>
+
+    <!-- File upload zone — visible only when DataChannel is open and not readonly -->
+    <div id="file-upload-zone" class="file-upload-zone" style="display:none;">
+      <input type="file" id="file-input" hidden>
+      <button id="upload-btn" class="toolbar-btn upload-btn" title="Upload file to host">&#128193; Upload File</button>
+      <div id="upload-progress" class="upload-progress" style="display:none;">
+        <span id="upload-filename" class="upload-filename"></span>
+        <div class="upload-bar-track">
+          <div id="upload-bar-fill" class="upload-bar-fill"></div>
+        </div>
+        <span id="upload-percent" class="upload-percent">0%</span>
+      </div>
+    </div>
+
     <div id="terminal-container">
     </div>
   </div>

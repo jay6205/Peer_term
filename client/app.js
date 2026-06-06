@@ -19,6 +19,15 @@
     const tabBtn          = document.getElementById('tab-btn');
     const toastContainer  = document.getElementById('toast-container');
 
+    // File upload DOM elements
+    const fileUploadZone  = document.getElementById('file-upload-zone');
+    const fileInput       = document.getElementById('file-input');
+    const uploadBtn       = document.getElementById('upload-btn');
+    const uploadProgress  = document.getElementById('upload-progress');
+    const uploadFilename  = document.getElementById('upload-filename');
+    const uploadBarFill   = document.getElementById('upload-bar-fill');
+    const uploadPercent   = document.getElementById('upload-percent');
+
     // ─── Toast Notification System ────────────────────────────────────────
     const TOAST_MAX = 4;
 
@@ -101,6 +110,10 @@
     let peerSameLAN = false;
     let iceTimer = null;
     let dcTimer = null;
+
+    // File upload state
+    const FILE_CHUNK_SIZE = 16 * 1024; // 16KB raw per chunk
+    let activeUpload = null; // { id, name, size, totalChunks, sentChunks }
 
     // ─── Relay URLs (Fallback list) ──────────────────────────────────────────
     const DEFAULT_RELAYS = [
@@ -749,11 +762,17 @@
         if (tabBtn) tabBtn.disabled = true;
         mobileInput.disabled = true;
         mobileInput.blur();
+        // Hide file upload in readonly mode
+        if (fileUploadZone) fileUploadZone.style.display = 'none';
       } else {
         hideViewOnlyBadge();
         pasteBtn.style.display = '';
         if (tabBtn) tabBtn.disabled = false;
         mobileInput.disabled = false;
+        // Show file upload if DataChannel is available
+        if (fileUploadZone && dataChannel && dataChannel.readyState === 'open') {
+          fileUploadZone.style.display = '';
+        }
       }
 
       if (terminal) {
@@ -804,6 +823,23 @@
             return;
           }
         } catch {}
+      }
+
+      // Handle file upload ack/error responses from host
+      try {
+        const parsed = JSON.parse(plaintext);
+        if (parsed && parsed.type === 'file-ack') {
+          resetUploadUI();
+          showToast(`File uploaded: ${parsed.name || 'file'}`, 'success');
+          return;
+        }
+        if (parsed && parsed.type === 'file-error') {
+          resetUploadUI();
+          showToast(`Upload failed: ${parsed.msg || 'unknown error'}`, 'error');
+          return;
+        }
+      } catch {
+        // Not JSON — it's normal PTY output, fall through
       }
 
       if (awaitingHostAuthorization) return;
@@ -1313,6 +1349,8 @@
             console.log('[WebRTC] DataChannel open — relay bypassed');
             showToast('Direct local connection established', 'success');
             updateConnIndicator('direct');
+            // Show file upload zone when DataChannel opens (unless readonly)
+            if (!isReadOnly && fileUploadZone) fileUploadZone.style.display = '';
           };
 
           dataChannel.onclose = () => {
@@ -1321,6 +1359,8 @@
               useDataChannel = false;
               updateConnIndicator('relay');
             }
+            // Hide file upload zone when DataChannel closes
+            if (fileUploadZone) fileUploadZone.style.display = 'none';
           };
 
           dataChannel.onerror = (err) => {
@@ -1424,6 +1464,138 @@
         peerConnection = null;
       }
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // FILE UPLOAD — chunk, encrypt, send over DataChannel only
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Generate a random 8-character hex ID for each file transfer.
+     */
+    function generateUploadId() {
+      const arr = crypto.getRandomValues(new Uint8Array(4));
+      return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    /**
+     * Send a file-transfer JSON message over the DataChannel (encrypted).
+     * File messages are DataChannel-only — never sent via WebSocket relay.
+     */
+    async function sendFileMessage(msgObj) {
+      if (!sharedKey || !dataChannel || dataChannel.readyState !== 'open') return;
+      try {
+        const json = JSON.stringify(msgObj);
+        const payload = await encrypt(sharedKey, json);
+        dataChannel.send(payload);
+      } catch (err) {
+        console.error('[FileUpload] Send failed:', err);
+      }
+    }
+
+    /**
+     * Start uploading a file to the host.
+     * Reads the file as ArrayBuffer, chunks it into FILE_CHUNK_SIZE pieces,
+     * base64-encodes each chunk, encrypts, and sends over DataChannel.
+     */
+    async function startFileUpload(file) {
+      // Guard: DataChannel must be open
+      if (!dataChannel || dataChannel.readyState !== 'open') {
+        showToast('Direct connection required for file upload', 'error');
+        return;
+      }
+      // Guard: not in readonly mode
+      if (isReadOnly) return;
+      // Guard: no concurrent uploads
+      if (activeUpload) {
+        showToast('Upload already in progress', 'warning');
+        return;
+      }
+
+      const id = generateUploadId();
+      const totalChunks = Math.ceil(file.size / FILE_CHUNK_SIZE) || 1; // at least 1 chunk for empty files
+
+      activeUpload = { id, name: file.name, size: file.size, totalChunks, sentChunks: 0 };
+
+      // Show progress UI
+      uploadFilename.textContent = file.name;
+      uploadBarFill.style.width = '0%';
+      uploadPercent.textContent = '0%';
+      uploadProgress.style.display = '';
+
+      // Send file-start
+      await sendFileMessage({ type: 'file-start', id, name: file.name, size: file.size, totalChunks });
+
+      // Read file as ArrayBuffer and chunk it
+      try {
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * FILE_CHUNK_SIZE;
+          const end = Math.min(start + FILE_CHUNK_SIZE, bytes.length);
+          const chunk = bytes.slice(start, end);
+
+          // Convert chunk to base64
+          const base64 = btoa(String.fromCharCode(...chunk));
+
+          await sendFileMessage({ type: 'file-chunk', id, index: i, data: base64 });
+
+          // Update progress
+          activeUpload.sentChunks = i + 1;
+          const pct = Math.round(((i + 1) / totalChunks) * 100);
+          uploadBarFill.style.width = `${pct}%`;
+          uploadPercent.textContent = `${pct}%`;
+        }
+
+        // Send file-end
+        await sendFileMessage({ type: 'file-end', id });
+      } catch (err) {
+        console.error('[FileUpload] Read/send error:', err);
+        showToast(`Upload failed: ${err.message}`, 'error');
+        resetUploadUI();
+      }
+    }
+
+    /**
+     * Reset the upload progress UI and clear active upload state.
+     */
+    function resetUploadUI() {
+      activeUpload = null;
+      if (uploadProgress) uploadProgress.style.display = 'none';
+      if (uploadBarFill) uploadBarFill.style.width = '0%';
+      if (uploadPercent) uploadPercent.textContent = '0%';
+      if (uploadFilename) uploadFilename.textContent = '';
+    }
+
+    /**
+     * Show or hide the file upload zone based on DataChannel + readonly state.
+     */
+    function updateFileUploadVisibility() {
+      if (!fileUploadZone) return;
+      const canUpload = !isReadOnly && dataChannel && dataChannel.readyState === 'open';
+      fileUploadZone.style.display = canUpload ? '' : 'none';
+    }
+
+    // ─── Upload button & file input handlers ──────────────────────────────
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) startFileUpload(e.target.files[0]);
+      fileInput.value = ''; // reset so same file can be re-selected
+    });
+
+    // ─── Drag-and-drop on the upload zone ─────────────────────────────────
+    fileUploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      fileUploadZone.classList.add('drag-over');
+    });
+    fileUploadZone.addEventListener('dragleave', () => {
+      fileUploadZone.classList.remove('drag-over');
+    });
+    fileUploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      fileUploadZone.classList.remove('drag-over');
+      if (e.dataTransfer.files[0]) startFileUpload(e.dataTransfer.files[0]);
+    });
 
     // ═════════════════════════════════════════════════════════════════════════
     // HEARTBEAT — 5s ping, 2 missed = connection dead
@@ -1607,6 +1779,10 @@
       hostWaitingForReconnect = false;
       awaitingHostAuthorization = false;
       currentFontSize = 14;
+
+      // Reset file upload state
+      resetUploadUI();
+      if (fileUploadZone) fileUploadZone.style.display = 'none';
 
       // Reset UI
       terminalScreen.classList.remove('active');
