@@ -47,6 +47,7 @@ peer-term --verbose                    # enable debug logging
 - **End-to-End Encrypted**: Terminal data is encrypted locally using AES-256-GCM with ECDH P-256 key exchange. The relay never sees plaintext. A `--secure` flag enables an out-of-band fingerprint check for strict MITM protection.
 - **WebRTC P2P**: Creates a direct Peer-to-Peer connection on the same LAN for zero-latency, relay-free sessions.
 - **Read-Only Mode**: Guests can view your terminal but cannot type commands.
+- **File Uploads**: Clients can drag-and-drop to securely upload files directly to `~/peerterm-uploads/` on the host machine. Fully encrypted end-to-end.
 - **Custom Start Path**: Set the starting directory with `--path`.
 - **Resilient Connections**: Both host and client get a 2-minute rejoin window if their IP changes or connection drops. PTY state is fully preserved — no session restart needed.
 - **Multi-Session**: Manage multiple simultaneous sessions with the interactive CLI menu.

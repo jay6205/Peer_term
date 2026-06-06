@@ -19,6 +19,7 @@
 * **Works Everywhere** – The host runs as a Node.js CLI. The client is a lightweight, single-page HTML application that works on any modern browser.
 * **Local P2P (Zero Latency)** – When the host and client are on the same local network, PeerTerm establishes a direct **WebRTC DataChannel**, bypassing the relay server entirely for zero-latency, private connections.
 * **Read-Only Mode** – Perfect for demos, pair debugging, or interviews. Use `--readonly` so viewers can watch your terminal without the ability to execute commands.
+* **File Uploads** – Clients can securely drag-and-drop files (up to 100MB) to upload them directly to the host's `~/peerterm-uploads/` directory. All transfers are end-to-end encrypted and work over both WebRTC and relay connections.
 * **Resilient Connections** – Both host and client get a 2-minute rejoin window if their IP changes or connection drops mid-session. The PTY state is fully preserved — no session restart needed.
 
 ---
