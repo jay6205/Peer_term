@@ -769,8 +769,8 @@
         pasteBtn.style.display = '';
         if (tabBtn) tabBtn.disabled = false;
         mobileInput.disabled = false;
-        // Show file upload if DataChannel is available
-        if (fileUploadZone && dataChannel && dataChannel.readyState === 'open') {
+        // Show file upload if not readonly
+        if (fileUploadZone) {
           fileUploadZone.style.display = '';
         }
       }
@@ -1349,7 +1349,7 @@
             console.log('[WebRTC] DataChannel open — relay bypassed');
             showToast('Direct local connection established', 'success');
             updateConnIndicator('direct');
-            // Show file upload zone when DataChannel opens (unless readonly)
+            // File upload zone visibility is handled by setReadonly
             if (!isReadOnly && fileUploadZone) fileUploadZone.style.display = '';
           };
 
@@ -1359,8 +1359,7 @@
               useDataChannel = false;
               updateConnIndicator('relay');
             }
-            // Hide file upload zone when DataChannel closes
-            if (fileUploadZone) fileUploadZone.style.display = 'none';
+            // File upload zone visibility is handled by setReadonly
           };
 
           dataChannel.onerror = (err) => {
@@ -1478,15 +1477,14 @@
     }
 
     /**
-     * Send a file-transfer JSON message over the DataChannel (encrypted).
-     * File messages are DataChannel-only — never sent via WebSocket relay.
+     * Send a file-transfer JSON message (encrypted).
      */
     async function sendFileMessage(msgObj) {
-      if (!sharedKey || !dataChannel || dataChannel.readyState !== 'open') return;
+      if (!sharedKey) return;
       try {
         const json = JSON.stringify(msgObj);
         const payload = await encrypt(sharedKey, json);
-        dataChannel.send(payload);
+        sendEncryptedToHost(payload);
       } catch (err) {
         console.error('[FileUpload] Send failed:', err);
       }
@@ -1498,13 +1496,11 @@
      * base64-encodes each chunk, encrypts, and sends over DataChannel.
      */
     async function startFileUpload(file) {
-      // Guard: DataChannel must be open
-      if (!dataChannel || dataChannel.readyState !== 'open') {
-        showToast('Direct connection required for file upload', 'error');
+      // Guard: not in readonly mode
+      if (isReadOnly) {
+        showToast('Cannot upload in view-only mode', 'error');
         return;
       }
-      // Guard: not in readonly mode
-      if (isReadOnly) return;
       // Guard: no concurrent uploads
       if (activeUpload) {
         showToast('Upload already in progress', 'warning');
@@ -1540,6 +1536,12 @@
 
           await sendFileMessage({ type: 'file-chunk', id, index: i, data: base64 });
 
+          // Yield the event loop between chunks on the relay path to avoid
+          // overwhelming the relay's backpressure threshold.
+          if (!dataChannel || dataChannel.readyState !== 'open') {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+
           // Update progress
           activeUpload.sentChunks = i + 1;
           const pct = Math.round(((i + 1) / totalChunks) * 100);
@@ -1568,12 +1570,11 @@
     }
 
     /**
-     * Show or hide the file upload zone based on DataChannel + readonly state.
+     * Show or hide the file upload zone based on readonly state.
      */
     function updateFileUploadVisibility() {
       if (!fileUploadZone) return;
-      const canUpload = !isReadOnly && dataChannel && dataChannel.readyState === 'open';
-      fileUploadZone.style.display = canUpload ? '' : 'none';
+      fileUploadZone.style.display = isReadOnly ? 'none' : '';
     }
 
     // ─── Upload button & file input handlers ──────────────────────────────

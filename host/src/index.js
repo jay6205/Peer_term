@@ -609,6 +609,17 @@ class Session {
                 return;
               }
 
+              // Check if decrypted message is a file transfer message (file-start, file-chunk, file-end)
+              try {
+                const parsedMsg = JSON.parse(plaintext);
+                if (parsedMsg && typeof parsedMsg.type === 'string' && parsedMsg.type.startsWith('file-')) {
+                  this._handleFileMessage(parsedMsg);
+                  return;
+                }
+              } catch {
+                // Not JSON — normal keystroke data, fall through
+              }
+
               // Normal keystroke — drop if read-only
               if (this.readOnly) return;
               this.ptyProcess.write(plaintext);
@@ -1316,6 +1327,17 @@ class Session {
                 }
               } catch {}
               return;
+            }
+
+            // Check if decrypted message is a file transfer message
+            try {
+              const parsedMsg = JSON.parse(plaintext);
+              if (parsedMsg && typeof parsedMsg.type === 'string' && parsedMsg.type.startsWith('file-')) {
+                this._handleFileMessage(parsedMsg);
+                return;
+              }
+            } catch {
+              // Not JSON — normal keystroke data, fall through
             }
 
             if (this.readOnly) return;
