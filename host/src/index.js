@@ -613,6 +613,10 @@ class Session {
               try {
                 const parsedMsg = JSON.parse(plaintext);
                 if (parsedMsg && typeof parsedMsg.type === 'string' && parsedMsg.type.startsWith('file-')) {
+                  if (this.readOnly) {
+                    this._sendFileError(parsedMsg.id, 'File uploads are disabled in read-only mode');
+                    return;
+                  }
                   this._handleFileMessage(parsedMsg);
                   return;
                 }
@@ -846,6 +850,12 @@ class Session {
    * All file messages arrive over the DataChannel only.
    */
   _handleFileMessage(msg) {
+    // Defense-in-depth: reject all file operations in read-only sessions
+    if (this.readOnly) {
+      this._sendFileError(msg.id, 'File uploads are disabled in read-only mode');
+      return;
+    }
+
     switch (msg.type) {
       case 'file-start': {
         // Validate required fields
@@ -1370,6 +1380,10 @@ class Session {
             try {
               const parsedMsg = JSON.parse(plaintext);
               if (parsedMsg && typeof parsedMsg.type === 'string' && parsedMsg.type.startsWith('file-')) {
+                if (this.readOnly) {
+                  this._sendFileError(parsedMsg.id, 'File uploads are disabled in read-only mode');
+                  return;
+                }
                 this._handleFileMessage(parsedMsg);
                 return;
               }
@@ -1527,6 +1541,10 @@ class Session {
         try {
           const msg = JSON.parse(plaintext);
           if (msg && typeof msg.type === 'string' && msg.type.startsWith('file-')) {
+            if (this.readOnly) {
+              this._sendFileError(msg.id, 'File uploads are disabled in read-only mode');
+              return;
+            }
             this._handleFileMessage(msg);
             return;
           }
