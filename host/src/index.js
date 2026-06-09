@@ -41,7 +41,7 @@ import {
   decrypt,
 } from './crypto.js';
 import { HostWebRTC } from './webrtc.js';
-import logger, { writeToErrorLog } from './logger.js';
+import logger from './logger.js';
 import { printBanner, printSessionBox, printHelp, printVersion } from './ui.js';
 
 // ─── File paths ──────────────────────────────────────────────────────────────
