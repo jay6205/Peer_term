@@ -26,7 +26,7 @@ import crypto from 'crypto';
 import path from 'path';
 import net from 'net';
 import readline from 'readline';
-import { exec as cpExec } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import WebSocket from 'ws';
 import pty from 'node-pty';
@@ -1151,14 +1151,44 @@ class Session {
 
     const viewerScript = path.join(__dirname, 'session-viewer.js');
     const platform = os.platform();
+    const portStr = String(port);
+    const nodeArgs = [viewerScript, portStr, this.code, token];
 
     if (platform === 'win32') {
-      cpExec(`start "PeerTerm - ${this.code}" cmd /c node "${viewerScript}" ${port} ${this.code} ${token}`);
+      // spawn with 'cmd' to open a new window; arguments are passed as an
+      // array so the install path is never interpreted by the shell.
+      spawn('cmd', ['/c', 'start', `PeerTerm - ${this.code}`, 'cmd', '/c', 'node', ...nodeArgs], {
+        stdio: 'ignore',
+        detached: true,
+        windowsHide: false,
+      }).unref();
     } else if (platform === 'darwin') {
-      cpExec(`osascript -e 'tell app "Terminal" to do script "node \"${viewerScript}\" ${port} ${this.code} ${token}"'`);
+      // osascript receives the AppleScript source as a single -e argument;
+      // node args are baked into the script string, but execFile does NOT
+      // invoke a shell so the outer path cannot break out.
+      const script = `tell app "Terminal" to do script "node '${viewerScript.replace(/'/g, "'\\''")}' ${portStr} ${this.code} ${token}"`;
+      execFile('osascript', ['-e', script], { stdio: 'ignore' }, () => {});
     } else {
-      // Linux: try common terminal emulators
-      cpExec(`x-terminal-emulator -e "node '${viewerScript}' ${port} ${this.code} ${token}" 2>/dev/null || gnome-terminal -- node "${viewerScript}" ${port} ${this.code} ${token} 2>/dev/null || xterm -e "node '${viewerScript}' ${port} ${this.code} ${token}"`);
+      // Linux: try common terminal emulators in order, falling through on
+      // failure.  Each call uses execFile (no shell), so paths with
+      // metacharacters are safe.
+      const tryTerminals = [
+        ['x-terminal-emulator', ['-e', 'node', ...nodeArgs]],
+        ['gnome-terminal', ['--', 'node', ...nodeArgs]],
+        ['xterm', ['-e', 'node', ...nodeArgs]],
+      ];
+
+      const tryNext = (index) => {
+        if (index >= tryTerminals.length) {
+          this.log('Could not open any terminal emulator for viewer.');
+          return;
+        }
+        const [cmd, args] = tryTerminals[index];
+        execFile(cmd, args, { stdio: 'ignore' }, (err) => {
+          if (err) tryNext(index + 1);
+        });
+      };
+      tryNext(0);
     }
     this.log('Opening terminal viewer...');
   }
