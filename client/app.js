@@ -32,16 +32,22 @@
     const TOAST_MAX = 4;
 
     function showToast(message, type = 'info', duration = 4000) {
+      const safeMessage = String(message ?? '');
+
       // Deduplicate: skip if same message is already visible
       const existing = toastContainer.querySelectorAll('.toast:not(.removing)');
       for (const t of existing) {
-        if (t.dataset.msg === message) return;
+        if (t.dataset.msg === safeMessage) return;
       }
 
       const el = document.createElement('div');
       el.className = `toast toast-${type}`;
-      el.dataset.msg = message;
-      el.innerHTML = `<span class="toast-msg">${message}</span>`;
+      el.dataset.msg = safeMessage;
+
+      const msgEl = document.createElement('span');
+      msgEl.className = 'toast-msg';
+      msgEl.textContent = safeMessage;
+      el.appendChild(msgEl);
 
       // Click to dismiss
       el.addEventListener('click', () => removeToast(el));
