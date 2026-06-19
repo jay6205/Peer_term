@@ -123,8 +123,7 @@
 
     // ─── Relay URLs (Fallback list) ──────────────────────────────────────────
     const DEFAULT_RELAYS = [
-      'wss://peer-term-relay-production-9b7a.up.railway.app',
-      'wss://peer-term-relay.onrender.com'
+      'wss://relay.dhananjaybalekar.in'
     ];
 
     function getRelayUrls() {
