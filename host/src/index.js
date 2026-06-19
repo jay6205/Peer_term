@@ -90,8 +90,7 @@ if (argv.verbose) {
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 const DEFAULT_RELAYS = [
-  'wss://peer-term-relay.onrender.com',
-  'wss://peer-term-relay-production-9b7a.up.railway.app'
+  'wss://relay.dhananjaybalekar.in'
 ];
 const RELAY_URLS = argv.relay 
   ? argv.relay.split(',').map(s => s.trim()) 
