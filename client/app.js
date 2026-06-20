@@ -131,13 +131,18 @@
       const custom = params.get('relay');
       if (custom) return [custom];
       
-      // If we are served directly from a relay server (Render/Railway/localhost), use that first!
-      if (location.host.includes('railway') || location.host.includes('render') || location.hostname === 'localhost') {
+      // If the client is served directly from a relay server, use its origin automatically.
+      // Skip self-detection only for known static/CDN hosts that aren't relay servers.
+      const staticHosts = ['peerterm.dev', 'www.peerterm.dev'];
+      if (!staticHosts.includes(location.hostname)) {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return [`${proto}//${location.host}`];
+        const selfRelay = `${proto}//${location.host}`;
+        // Prepend self-origin and deduplicate against defaults
+        const combined = [selfRelay, ...DEFAULT_RELAYS.filter(u => u !== selfRelay)];
+        return combined;
       }
       
-      // Otherwise (e.g. peerterm.dev or static page), try defaults
+      // Static site / CDN — use hardcoded defaults
       return DEFAULT_RELAYS;
     }
     const RELAY_URLS = getRelayUrls();
