@@ -64,6 +64,15 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// Helper - structured log with timestamp
+function log(event, data = {}) {
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    event,
+    ...data
+  }));
+}
+
 // Map<code, session>
 // session shape: {
 //   hostSocket, clientSocket, expiresAt,
@@ -80,6 +89,7 @@ function markHostDisconnected(code, session, reason = 'disconnect') {
   if (session.hostDisconnected) return;
 
   console.log(`[session] Host ${reason} from session: ${code}`);
+  log('peer_disconnected', { sessionCode: code, peer: 'host', reason });
 
   session.hostDisconnected = true;
   session.hostRejoinDeadline = Date.now() + (session.rejoinWindowMs || REJOIN_WINDOW_MS);
@@ -100,6 +110,7 @@ function markClientDisconnected(code, session, reason = 'disconnect') {
   if (session.clientDisconnected) return;
 
   console.log(`[session] Client ${reason} from session: ${code}`);
+  log('peer_disconnected', { sessionCode: code, peer: 'client', reason });
 
   session.clientDisconnected = true;
   session.rejoinDeadline = Date.now() + (session.rejoinWindowMs || REJOIN_WINDOW_MS);
@@ -380,6 +391,11 @@ function countSessionsForIp(ip) {
 
 function destroySession(code, session, reason) {
   console.log(`[evict] Session ${code} removed: ${reason}`);
+  log('session_ended', {
+    sessionCode: code,
+    reason,
+    duration_ms: Date.now() - (session.createdAt || Date.now())
+  });
 
   if (session.hostSocket && session.hostSocket.readyState === 1) {
     try { session.hostSocket.send(JSON.stringify({ type: 'session-expired', msg: reason })); } catch {}
@@ -553,6 +569,15 @@ const server = http.createServer((req, res) => {
         res.end(`<!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-5GV9ENEL65"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-5GV9ENEL65');
+  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PeerTerm Relay</title>
@@ -774,6 +799,7 @@ wss.on('connection', (ws, req) => {
 
         ws.send(JSON.stringify({ type: 'code', code, hostToken }));
         console.log(`[session] Host registered with code: ${code} (expires in ${Math.round(expiryMs / 1000)}s)${readonly ? ' (readonly)' : ''}`);
+        log('session_created', { sessionCode: code, host_ip: ip });
         break;
       }
 
@@ -815,6 +841,7 @@ wss.on('connection', (ws, req) => {
 
         if (session.clientDisconnected && session.rejoinDeadline && Date.now() < session.rejoinDeadline) {
           console.log(`[session] Client rejoining session: ${code}`);
+          log('peer_joined', { sessionCode: code, rejoining: true });
           session.clientSocket = ws;
           session.clientDisconnected = false;
           session.rejoinDeadline = null;
@@ -850,6 +877,7 @@ wss.on('connection', (ws, req) => {
         resetRateLimit(ip);
         resetCodeRateLimit(code);
         console.log(`[session] Client joined session: ${code}`);
+        log('peer_joined', { sessionCode: code });
         break;
       }
 

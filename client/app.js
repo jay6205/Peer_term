@@ -356,6 +356,14 @@
       setLoading(true);
       updateConnIndicator('connecting');
 
+      // When someone joins a session
+      if (typeof gtag === 'function') {
+        gtag('event', 'session_joined', {
+          event_category: 'PeerTerm',
+          event_label: 'client'
+        });
+      }
+
       connectToRelay(code, 0);
     }
 
@@ -907,6 +915,13 @@
       terminalScreen.classList.add('active');
       statusCode.textContent = `Session ${sessionCode}`;
       updateConnIndicator('relay');
+
+      // When a connection is established
+      if (typeof gtag === 'function') {
+        gtag('event', 'connection_established', {
+          event_category: 'PeerTerm'
+        });
+      }
 
       // Read-only mode setup
       if (isReadOnly || readOnlyHint) {
@@ -1831,3 +1846,13 @@
 
       codeInput.focus();
     }
+
+    // When a session is created
+    window.trackSessionCreated = function() {
+      if (typeof gtag === 'function') {
+        gtag('event', 'session_created', {
+          event_category: 'PeerTerm',
+          event_label: 'host'
+        });
+      }
+    };
