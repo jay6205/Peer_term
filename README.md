@@ -36,7 +36,7 @@ That's it! You will be given a 6-digit session code.
 
 **Connecting as a Viewer:**
 Share the code with your peer. They simply need to visit your client URL and enter the code:
-* **Default Client:** [peer-term-relay.onrender.com](https://peer-term-relay.onrender.com)
+* **Default Client:** [relay.dhananjaybalekar.in](https://relay.dhananjaybalekar.in/)
 * **Self-hosted Relay:** `http://localhost:8080`
 
 By default, the connection is instant. If you started the session with `--secure`, both sides will show a short security fingerprint. Compare it over a trusted channel, and authorize terminal access in the host CLI with `a <code>`.
@@ -136,8 +136,8 @@ The client is a single `index.html` file located in the `client/` directory.
 
 * **Render / Vercel / Netlify:** Import the repository and set the publish/root directory to `client/`. Zero build configuration is required.
 
-Once deployed, viewers can connect using your Render URL:
-`https://your-client-app.onrender.com/?relay=wss://your-relay.com`
+Once deployed, viewers can connect using your custom URL:
+`https://your-client-domain.com/?relay=wss://your-relay.com`
 
 ---
 
