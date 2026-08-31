@@ -1,0 +1,16 @@
+{
+  "name": "peerterm-mcp-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server proof-of-concept for PeerTerm (Phase 1 — mock data only)",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-client.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "express": "^4.21.0",
+    "zod": "^3.24.0"
+  }
+}
