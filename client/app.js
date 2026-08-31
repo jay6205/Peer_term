@@ -9,6 +9,7 @@
     const terminalEl      = document.getElementById('terminal-container');
     const connIndicator   = document.getElementById('connection-indicator');
     const readonlyBadge   = document.getElementById('readonly-badge');
+    const mcpBadge        = document.getElementById('mcp-badge');
     const pasteBtn        = document.getElementById('paste-btn');
     const copyBtn         = document.getElementById('copy-btn');
     const clipToast       = document.getElementById('clipboard-toast');
@@ -474,6 +475,7 @@
             }
             sessionConfigApplied = false;
             readOnlyHint = msg.readonly === true;
+            const mcpHint = msg.mcpEnabled === true;
             // UNTRUSTED - relay envelope hint only.
             // Real enforcement comes from encrypted session-config.
             if (readOnlyHint) {
@@ -481,6 +483,13 @@
             } else if (!isReconnecting) {
               hideViewOnlyBadge();
             }
+            
+            if (mcpHint) {
+              showMcpBadge();
+            } else if (!isReconnecting) {
+              hideMcpBadge();
+            }
+            
             if (!isReconnecting) {
               connectingOvl.classList.add('visible');
             }
@@ -762,11 +771,17 @@
     // ═════════════════════════════════════════════════════════════════════════
 
     function showViewOnlyBadge() {
-      readonlyBadge.style.display = 'flex';
+      if (readonlyBadge) readonlyBadge.classList.add('visible');
     }
-
     function hideViewOnlyBadge() {
-      readonlyBadge.style.display = 'none';
+      if (readonlyBadge) readonlyBadge.classList.remove('visible');
+    }
+    
+    function showMcpBadge() {
+      if (mcpBadge) mcpBadge.classList.add('visible');
+    }
+    function hideMcpBadge() {
+      if (mcpBadge) mcpBadge.classList.remove('visible');
     }
 
     function setReadonly(readonly) {

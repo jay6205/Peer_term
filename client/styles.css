@@ -504,17 +504,37 @@
     /* ─── View Only Badge ──────────────────────────────────────────────── */
     #readonly-badge {
       display: none;
-      align-items: center;
-      gap: 4px;
+      background-color: rgba(255, 255, 255, 0.1);
+      color: #a1a1aa;
+      border: 1px solid rgba(255, 255, 255, 0.15);
       padding: 2px 8px;
+      border-radius: 12px;
       font-size: 11px;
       font-weight: 500;
-      color: var(--warning);
-      background: rgba(251, 191, 36, 0.1);
-      border: 1px solid rgba(251, 191, 36, 0.2);
-      border-radius: 4px;
+      margin-left: 8px;
     }
-    #readonly-badge.visible { display: flex; }
+
+    #mcp-badge {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      background-color: rgba(99, 102, 241, 0.1);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+      margin-left: 8px;
+    }
+
+    #readonly-badge.visible {
+      display: inline-flex;
+    }
+
+    #mcp-badge.visible {
+      display: inline-flex;
+    }
 
     /* ─── Clipboard Buttons ────────────────────────────────────────────── */
     #copy-btn {

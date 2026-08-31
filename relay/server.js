@@ -18,6 +18,11 @@ import path from 'path';
 import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'url';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import express from 'express';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,6 +89,10 @@ const sessions = new Map();
 
 // Reverse lookup: socket → code (for cleanup on disconnect)
 const socketToCode = new Map();
+
+// MCP Output Buffers
+// Map<code, { lines: string[], totalBytes: number, mcpEnabled: boolean }>
+const mcpBuffers = new Map();
 
 function markHostDisconnected(code, session, reason = 'disconnect') {
   if (session.hostDisconnected) return;
@@ -409,6 +418,7 @@ function destroySession(code, session, reason) {
   socketToCode.delete(session.hostSocket);
   if (session.clientSocket) socketToCode.delete(session.clientSocket);
   sessions.delete(code);
+  mcpBuffers.delete(code);
 }
 
 function findEvictionCandidate() {
@@ -535,7 +545,123 @@ const MIME_TYPES = {
 
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
 
+// ─── MCP Server & Express App ────────────────────────────────────────────────
+
+function createMcpServer() {
+  const server = new McpServer({
+    name: 'peer-term-mcp-relay',
+    version: '1.0.0',
+  });
+
+  server.tool(
+    'read_terminal',
+    'Read the latest output from a shared PeerTerm terminal session.',
+    {
+      session_code: z.string().describe('The 6-digit session code to read from'),
+    },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+    async ({ session_code }) => {
+      const buf = mcpBuffers.get(session_code);
+      if (!buf || !buf.mcpEnabled) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `No shared session found for code: ${session_code}`,
+            }
+          ]
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: buf.lines.join(''),
+          }
+        ]
+      };
+    }
+  );
+
+  return server;
+}
+
+const mcpApp = express();
+const mcpTransports = new Map();
+
+mcpApp.use(express.json());
+
+mcpApp.post('/mcp', async (req, res) => {
+  try {
+    const sessionId = req.headers['mcp-session-id'];
+
+    if (sessionId && mcpTransports.has(sessionId)) {
+      const transport = mcpTransports.get(sessionId);
+      await transport.handleRequest(req, res, req.body);
+      return;
+    }
+
+    if (sessionId && !mcpTransports.has(sessionId)) {
+      res.status(400).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Invalid session ID' },
+        id: null,
+      });
+      return;
+    }
+
+    const newSessionId = randomUUID();
+    const transport = new StreamableHTTPServerTransport({
+      sessionId: newSessionId,
+      onsessioninitialized: (_session) => {},
+    });
+
+    mcpTransports.set(newSessionId, transport);
+
+    transport.onclose = () => {
+      mcpTransports.delete(newSessionId);
+    };
+
+    const server = createMcpServer();
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (error) {
+    console.error('[mcp] Error handling POST request:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        jsonrpc: '2.0',
+        error: { code: -32603, message: 'Internal server error' },
+        id: null,
+      });
+    }
+  }
+});
+
+mcpApp.get('/mcp', async (req, res) => {
+  const sessionId = req.headers['mcp-session-id'];
+  if (!sessionId || !mcpTransports.has(sessionId)) {
+    res.status(400).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Invalid or missing session ID' },
+      id: null,
+    });
+    return;
+  }
+  const transport = mcpTransports.get(sessionId);
+  await transport.handleRequest(req, res, req.query);
+});
+
 const server = http.createServer((req, res) => {
+  // Delegate MCP endpoints to express
+  if (req.url === '/mcp' || req.url.startsWith('/mcp?')) {
+    mcpApp(req, res);
+    return;
+  }
   // Health check endpoint
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -671,6 +797,12 @@ const MESSAGE_SCHEMAS = {
     required: {
       code:      (v) => typeof v === 'string' && /^\d{6}$/.test(v),
       hostToken: (v) => typeof v === 'string' && v.length > 0 && v.length <= MAX_TOKEN_LEN,
+    },
+  },
+  'mcp-enable': {},
+  'mcp-output': {
+    required: {
+      data: (v) => typeof v === 'string',
     },
   },
 };
@@ -873,11 +1005,53 @@ wss.on('connection', (ws, req) => {
 
         // Notify both sides
         session.hostSocket.send(JSON.stringify({ type: 'client-connected' }));
-        ws.send(JSON.stringify({ type: 'host-connected', readonly: session.readonly }));
+        const mcpBuf = mcpBuffers.get(code);
+        const mcpEnabled = mcpBuf ? mcpBuf.mcpEnabled : false;
+        ws.send(JSON.stringify({ type: 'host-connected', readonly: session.readonly, mcpEnabled }));
         resetRateLimit(ip);
         resetCodeRateLimit(code);
         console.log(`[session] Client joined session: ${code}`);
         log('peer_joined', { sessionCode: code });
+        break;
+      }
+
+      // ─── MCP Host Integration ────────────────────────────────────────
+      case 'mcp-enable': {
+        const state = requireRole(ws, msg.type, ['host']);
+        if (!state) return;
+        const { code } = state;
+        
+        let buf = mcpBuffers.get(code);
+        if (!buf) {
+          mcpBuffers.set(code, { lines: [], totalBytes: 0, mcpEnabled: true });
+        } else {
+          buf.mcpEnabled = true;
+        }
+        console.log(`[mcp] Enabled for session: ${code}`);
+        break;
+      }
+
+      case 'mcp-output': {
+        const state = requireRole(ws, msg.type, ['host']);
+        if (!state) return;
+        const { code } = state;
+
+        let buf = mcpBuffers.get(code);
+        if (!buf) {
+          buf = { lines: [], totalBytes: 0, mcpEnabled: false };
+          mcpBuffers.set(code, buf);
+        }
+
+        if (buf.mcpEnabled && msg.data) {
+          buf.lines.push(msg.data);
+          buf.totalBytes += msg.data.length;
+
+          // Cap memory usage to approx 256KB or 500 lines per session
+          while (buf.lines.length > 500 || buf.totalBytes > 256 * 1024) {
+            const removed = buf.lines.shift();
+            if (removed) buf.totalBytes -= removed.length;
+          }
+        }
         break;
       }
 

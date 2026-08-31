@@ -305,12 +305,13 @@ function detectShell() {
 // ─── Session Class ───────────────────────────────────────────────────────────
 
 class Session {
-  constructor(shell, expiryMs, rejoinMs, readOnly, startPath, onDestroy) {
+  constructor(shell, expiryMs, rejoinMs, readOnly, startPath, mcpEnabled, onDestroy) {
     this.shell = shell;
     this.expiryMs = expiryMs;
     this.rejoinMs = rejoinMs;
     this.readOnly = readOnly;
     this.startPath = startPath;
+    this.mcpEnabled = mcpEnabled;
     this.onDestroy = onDestroy;
     this.secureMode = argv.secure || false;
 
@@ -536,11 +537,17 @@ class Session {
           case 'code': {
             this.code = msg.code;
             this.hostToken = msg.hostToken || null;
+            
+            if (this.mcpEnabled) {
+              this.ws.send(JSON.stringify({ type: 'mcp-enable' }));
+            }
+            
             printSessionBox({
               code: this.code,
               expiry: formatDuration(this.expiryMs),
               rejoinWindow: formatDuration(this.rejoinMs),
               mode: (this.readOnly ? 'Read-Only' : 'Read-Write') + (this.secureMode ? ' (Secure)' : ''),
+              mcp: this.mcpEnabled,
               shell: this.shell,
               startPath: this.startPath,
               shareUrl: url.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
@@ -771,6 +778,12 @@ class Session {
       // Mirror PTY output to local viewer terminal
       if (this.viewerSocket) {
         try { this.viewerSocket.write(data); } catch {}
+      }
+
+      if (this.mcpEnabled && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.send(JSON.stringify({ type: 'mcp-output', data }));
+        } catch {}
       }
 
       if (!this.sharedKey) return;
@@ -1624,17 +1637,18 @@ class Session {
 // ─── Session Manager ─────────────────────────────────────────────────────────
 
 class SessionManager {
-  constructor(shell, expiryMs, rejoinMs, readOnly, startPath) {
+  constructor(shell, expiryMs, rejoinMs, readOnly, startPath, mcpEnabled) {
     this.shell = shell;
     this.expiryMs = expiryMs;
     this.rejoinMs = rejoinMs;
     this.readOnly = readOnly;
     this.startPath = startPath;
+    this.mcpEnabled = mcpEnabled;
     this.sessions = new Map(); // code → Session
   }
 
   async createSession() {
-    const session = new Session(this.shell, this.expiryMs, this.rejoinMs, this.readOnly, this.startPath, (code) => {
+    const session = new Session(this.shell, this.expiryMs, this.rejoinMs, this.readOnly, this.startPath, this.mcpEnabled, (code) => {
       this.sessions.delete(code);
     });
 
@@ -1693,6 +1707,7 @@ class SessionManager {
 async function main() {
   const shell = detectShell();
   const readOnly = argv.readonly;
+  const mcpEnabled = argv.mcp || false;
   const startPath = resolveStartPath(argv.path);
 
   // Print startup banner
@@ -1709,10 +1724,11 @@ async function main() {
   logger.info(`Expiry:         ${formatDuration(expiryMs)}`);
   logger.info(`Rejoin Window:  ${formatDuration(rejoinMs)}`);
   if (readOnly) logger.info('Mode:           READ-ONLY');
+  if (mcpEnabled) logger.info('MCP:            ENABLED');
   if (argv.verbose) logger.info('Verbose logging enabled');
   console.log('');
 
-  const manager = new SessionManager(shell, expiryMs, rejoinMs, readOnly, startPath);
+  const manager = new SessionManager(shell, expiryMs, rejoinMs, readOnly, startPath, mcpEnabled);
 
   // Create first session automatically
   const firstCode = await manager.createSession();

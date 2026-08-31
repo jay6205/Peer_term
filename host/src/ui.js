@@ -46,8 +46,9 @@ export function printBanner() {
  * @param {string} opts.shell    - Shell path (e.g. "/bin/zsh")
  * @param {string} [opts.startPath] - Starting directory for the session
  * @param {string} [opts.shareUrl] - URL to share (e.g. "https://peerterm.dev")
+ * @param {boolean} [opts.mcp]   - Whether MCP is enabled
  */
-export function printSessionBox({ code, expiry, rejoinWindow, mode, shell, startPath, shareUrl }) {
+export function printSessionBox({ code, expiry, rejoinWindow, mode, mcp, shell, startPath, shareUrl }) {
   const spacedCode = code.split('').join(' ');
   const url = shareUrl || 'https://peerterm.dev';
 
@@ -68,6 +69,7 @@ export function printSessionBox({ code, expiry, rejoinWindow, mode, shell, start
     `   Expires in:    ${expiry}`,
     `   Rejoin Window: ${rejoinWindow}`,
     `   Mode:          ${mode}`,
+    `   MCP:           ${mcp ? 'Enabled (sharing terminal to relay)' : 'Disabled'}`,
     `   Shell:         ${shellDisplay}`,
     `   Path:          ${pathDisplay}`,
   ];
@@ -102,6 +104,7 @@ Options:
   --rejoin <time>     Reconnection window (e.g. 5m, 1h, 6h)   [default: 2m]
   --readonly          Share in view-only mode
   --secure            Enable fingerprint verification for MITM protection
+  --mcp               Share plaintext terminal output with relay for MCP access
   --path <dir>        Starting directory for the terminal session  [default: home]
   --relay <url>       Custom relay server URL
   --verbose           Enable debug logging
