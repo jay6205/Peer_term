@@ -23,9 +23,33 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { generateToken, verifyToken, hasToken } from './token-store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// ─── CLI: Token Generation ──────────────────────────────────────────────────
+// Usage: node server.js --generate-token
+// Generates a new MCP bearer token, prints it once, and exits.
+// The previous token (if any) is immediately invalidated.
+if (process.argv.includes('--generate-token')) {
+  const token = generateToken();
+  console.log('');
+  console.log('  ╔═══════════════════════════════════════════════════════════════════════════╗');
+  console.log('  ║  New MCP Bearer Token Generated                                           ║');
+  console.log('  ║                                                                           ║');
+  console.log('  ║  ⚠  Copy this token now — it will NOT be shown again.                     ║');
+  console.log('  ║  ⚠  Any previous token has been invalidated.                              ║');
+  console.log('  ║                                                                           ║');
+  console.log(`  ║  Token: ${token}  ║`);
+  console.log('  ║                                                                           ║');
+  console.log('  ║  Use in requests:                                                         ║');
+  console.log('  ║    Authorization: Bearer <token>                                          ║');
+  console.log('  ║                                                                           ║');
+  console.log('  ╚═══════════════════════════════════════════════════════════════════════════╝');
+  console.log('');
+  process.exit(0);
+}
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8080;
@@ -595,6 +619,45 @@ const mcpApp = express();
 const mcpTransports = new Map();
 
 mcpApp.use(express.json());
+
+// ─── MCP Bearer Token Auth Middleware (Layer 1) ─────────────────────────────
+// Gates ALL /mcp requests. Does NOT affect the WebSocket relay or any other
+// route. Layer 2 (session_code lookup) is unchanged and runs after this.
+mcpApp.use((req, res, next) => {
+  // Reject early if no token has ever been generated
+  if (!hasToken()) {
+    console.warn('[mcp-auth] Request rejected: no MCP token has been generated yet. Run: node server.js --generate-token');
+    res.status(401).json({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Unauthorized: MCP token not configured. Generate one with --generate-token.' },
+      id: null,
+    });
+    return;
+  }
+
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Unauthorized: missing or malformed Authorization header' },
+      id: null,
+    });
+    return;
+  }
+
+  const token = authHeader.slice(7); // strip 'Bearer '
+  if (!verifyToken(token)) {
+    res.status(401).json({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Unauthorized: invalid bearer token' },
+      id: null,
+    });
+    return;
+  }
+
+  // Token valid — proceed to MCP handler (Layer 2 session_code check)
+  next();
+});
 
 mcpApp.post('/mcp', async (req, res) => {
   try {
