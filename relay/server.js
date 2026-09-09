@@ -66,6 +66,9 @@ const CODE_RATE_LIMIT_MAX = 10;                    // max failed attempts per co
 const CODE_RATE_LIMIT_BLOCK_MS = 5 * 60 * 1000;   // 5 minutes — block code after too many failures
 const HOST_REGISTER_WINDOW_MS = 60 * 1000;         // 60 seconds
 const HOST_REGISTER_MAX_PER_WINDOW = 10;
+const MCP_RATE_LIMIT_WINDOW_MS = 60 * 1000;        // 60-second sliding window
+const MCP_RATE_LIMIT_MAX_REQUESTS = 30;            // 30 requests per window per IP
+const MCP_RATE_LIMIT_BLOCK_MS = 60 * 1000;         // block for 60s after exceeding
 const HOST_REGISTER_BLOCK_MS = 5 * 60 * 1000;      // 5 minutes
 const MAX_SESSIONS = parsePositiveInt(process.env.MAX_SESSIONS, 500);
 const MAX_SESSIONS_PER_IP = parsePositiveInt(process.env.MAX_SESSIONS_PER_IP, 20);
@@ -207,6 +210,8 @@ const rateLimits = new Map();
 const hostRegisterLimits = new Map();
 // Map<code, { attempts: number, blockedUntil: number | null }>
 const codeLimits = new Map();
+// Map<ip, { count: number, windowStart: number, blockedUntil: number | null }>
+const mcpRateLimits = new Map();
 
 // ─── Code Generation ─────────────────────────────────────────────────────────
 
@@ -414,6 +419,49 @@ function isHostRegisterLimited(ip) {
   return false;
 }
 
+// ─── MCP Rate Limiting (per-IP, sliding window) ─────────────────────────────
+
+/**
+ * Check if an IP is currently rate-limited for MCP requests.
+ * Uses the same sliding-window pattern as host registration limiting.
+ * @returns {boolean} true if blocked
+ */
+function isMcpRateLimited(ip) {
+  const now = Date.now();
+  let entry = mcpRateLimits.get(ip);
+
+  if (entry?.blockedUntil) {
+    if (now < entry.blockedUntil) return true;
+    mcpRateLimits.delete(ip);
+    entry = null;
+  }
+
+  return false;
+}
+
+/**
+ * Record an MCP request for an IP. Returns true if the IP is now blocked.
+ */
+function recordMcpRequest(ip) {
+  const now = Date.now();
+  let entry = mcpRateLimits.get(ip);
+
+  // Reset window if expired or first request
+  if (!entry || now - entry.windowStart >= MCP_RATE_LIMIT_WINDOW_MS) {
+    entry = { count: 0, windowStart: now, blockedUntil: null };
+    mcpRateLimits.set(ip, entry);
+  }
+
+  entry.count++;
+  if (entry.count > MCP_RATE_LIMIT_MAX_REQUESTS) {
+    entry.blockedUntil = now + MCP_RATE_LIMIT_BLOCK_MS;
+    console.log(`[rate-limit] MCP IP ${ip} blocked for ${Math.round(MCP_RATE_LIMIT_BLOCK_MS / 1000)}s after ${entry.count} requests`);
+    return true;
+  }
+
+  return false;
+}
+
 function countSessionsForIp(ip) {
   let count = 0;
   for (const session of sessions.values()) {
@@ -507,6 +555,13 @@ setInterval(() => {
     } else if (!entry.blockedUntil && !sessions.has(code)) {
       codeLimits.delete(code);
     }
+  }
+
+  // Sweep stale MCP rate limit entries
+  for (const [ip, entry] of mcpRateLimits) {
+    const blockExpired = entry.blockedUntil && now >= entry.blockedUntil;
+    const windowExpired = now - entry.windowStart >= MCP_RATE_LIMIT_WINDOW_MS;
+    if (blockExpired || (!entry.blockedUntil && windowExpired)) mcpRateLimits.delete(ip);
   }
 
   for (const [code, session] of sessions) {
@@ -623,10 +678,26 @@ mcpApp.use(express.json());
 // ─── MCP Bearer Token Auth Middleware (Layer 1) ─────────────────────────────
 // Gates ALL /mcp requests. Does NOT affect the WebSocket relay or any other
 // route. Layer 2 (session_code lookup) is unchanged and runs after this.
+// Includes per-IP rate limiting and structured request logging.
 mcpApp.use((req, res, next) => {
+  const clientIp = getClientIp(req);
+
+  // ── Rate limit check (before auth) ──
+  if (isMcpRateLimited(clientIp)) {
+    log('mcp_request', { client_ip: clientIp, auth: 'rejected', reason: 'rate_limited' });
+    res.status(429).json({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Too many requests. Try again later.' },
+      id: null,
+    });
+    return;
+  }
+  recordMcpRequest(clientIp);
+
+  // ── Auth checks ──
   // Reject early if no token has ever been generated
   if (!hasToken()) {
-    console.warn('[mcp-auth] Request rejected: no MCP token has been generated yet. Run: node server.js --generate-token');
+    log('mcp_request', { client_ip: clientIp, auth: 'failed', reason: 'no_token_configured' });
     res.status(401).json({
       jsonrpc: '2.0',
       error: { code: -32001, message: 'Unauthorized: MCP token not configured. Generate one with --generate-token.' },
@@ -637,6 +708,7 @@ mcpApp.use((req, res, next) => {
 
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    log('mcp_request', { client_ip: clientIp, auth: 'failed', reason: 'missing_header' });
     res.status(401).json({
       jsonrpc: '2.0',
       error: { code: -32001, message: 'Unauthorized: missing or malformed Authorization header' },
@@ -647,6 +719,7 @@ mcpApp.use((req, res, next) => {
 
   const token = authHeader.slice(7); // strip 'Bearer '
   if (!verifyToken(token)) {
+    log('mcp_request', { client_ip: clientIp, auth: 'failed', reason: 'invalid_token' });
     res.status(401).json({
       jsonrpc: '2.0',
       error: { code: -32001, message: 'Unauthorized: invalid bearer token' },
@@ -655,7 +728,11 @@ mcpApp.use((req, res, next) => {
     return;
   }
 
-  // Token valid — proceed to MCP handler (Layer 2 session_code check)
+  // Token valid — log success with session_code if present in body
+  const sessionCode = req.body?.params?.arguments?.session_code;
+  log('mcp_request', { client_ip: clientIp, auth: 'success', session_code: sessionCode || undefined });
+
+  // Proceed to MCP handler (Layer 2 session_code check)
   next();
 });
 
