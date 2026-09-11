@@ -339,6 +339,19 @@
       font-size: 11px;
     }
 
+    .session-timer {
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      display: none;
+    }
+
+    .session-timer.active {
+      display: inline;
+      color: var(--text-secondary);
+    }
+
     .status-right {
       display: flex;
       align-items: center;

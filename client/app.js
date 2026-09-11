@@ -18,6 +18,7 @@
     const fontUpBtn       = document.getElementById('font-up-btn');
     const tabBtn          = document.getElementById('tab-btn');
     const toastContainer  = document.getElementById('toast-container');
+    const sessionTimerEl  = document.getElementById('session-timer');
 
     // File upload DOM elements
     const fileUploadZone  = document.getElementById('file-upload-zone');
@@ -97,6 +98,10 @@
     const MAX_MISSED = 2;
     const RECONNECT_MS = 5000;
     const RECONNECT_WINDOW_MS = 2 * 60 * 1000; // 2 minutes — matches relay rejoin window
+
+    // Session duration timer state
+    let sessionStartTime = null;
+    let sessionTimerInterval = null;
 
     // Phase 3: Feature state
     let isReadOnly = false;
@@ -916,6 +921,9 @@
       statusCode.textContent = `Session ${sessionCode}`;
       updateConnIndicator('relay');
 
+      // Start session duration timer
+      startSessionTimer();
+
       // When a connection is established
       if (typeof gtag === 'function') {
         gtag('event', 'connection_established', {
@@ -1242,6 +1250,56 @@
       };
       if (connIndicator) {
         connIndicator.textContent = states[state] || '';
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // SESSION DURATION TIMER
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Format elapsed milliseconds as MM:SS or HH:MM:SS when >= 1 hour.
+     */
+    function formatElapsed(ms) {
+      const totalSeconds = Math.floor(ms / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      const pad = (n) => String(n).padStart(2, '0');
+
+      if (hours > 0) {
+        return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+      }
+      return `${pad(minutes)}:${pad(seconds)}`;
+    }
+
+    function startSessionTimer() {
+      stopSessionTimer();
+      sessionStartTime = Date.now();
+
+      // Show the timer element
+      if (sessionTimerEl) {
+        sessionTimerEl.textContent = '00:00';
+        sessionTimerEl.classList.add('active');
+      }
+
+      sessionTimerInterval = setInterval(() => {
+        if (!sessionStartTime || !sessionTimerEl) return;
+        const elapsed = Date.now() - sessionStartTime;
+        sessionTimerEl.textContent = formatElapsed(elapsed);
+      }, 1000);
+    }
+
+    function stopSessionTimer() {
+      if (sessionTimerInterval) {
+        clearInterval(sessionTimerInterval);
+        sessionTimerInterval = null;
+      }
+      sessionStartTime = null;
+      if (sessionTimerEl) {
+        sessionTimerEl.classList.remove('active');
+        sessionTimerEl.textContent = '00:00';
       }
     }
 
@@ -1790,6 +1848,7 @@
       sessionEnded = true;
       stopHeartbeat();
       stopReconnecting();
+      stopSessionTimer();
       // Phase 4: Clean up WebRTC
       cleanupWebRTC();
       closeFingerprintPrompt();

@@ -347,6 +347,10 @@ class Session {
     this.viewerServer = null;
     this.viewerSocket = null;
     this.viewerToken = null;   // Random nonce for viewer auth
+
+    // Session duration tracking
+    this.sessionStartedAt = null;        // Timestamp: when the terminal session became active
+    this.sessionDurationInterval = null; // Interval: periodic CLI status log
   }
 
   log(msg) {
@@ -457,6 +461,12 @@ class Session {
     this.log(`Fingerprint authorized: ${this.securityFingerprint}`);
     this.log('Encrypted tunnel active');
     await this._sendSessionConfig();
+
+    // Mark session start time for duration tracking
+    if (!this.sessionStartedAt) {
+      this.sessionStartedAt = Date.now();
+      this._startDurationLogging();
+    }
 
     this.startHeartbeat();
 
@@ -1466,6 +1476,7 @@ class Session {
     this.intentionalClose = true;
     this.stopHeartbeat();
     this._stopReconnecting();
+    this._stopDurationLogging();
     // Clean up in-progress file uploads
     this._incomingFiles = {};
     // Clean up viewer
@@ -1488,7 +1499,13 @@ class Session {
       try { this.ws.send(JSON.stringify({ type: 'session-ended' })); } catch {}
       this.ws.close();
     }
-    this.log('Session ended.');
+    // Log session duration on end
+    if (this.sessionStartedAt) {
+      const duration = formatDuration(Date.now() - this.sessionStartedAt);
+      this.log(`Session ended. Duration: ${duration}`);
+    } else {
+      this.log('Session ended.');
+    }
     if (this.onDestroy) this.onDestroy(this.code);
   }
 
@@ -1610,7 +1627,10 @@ class Session {
     if (this.securityFingerprint && !this.fingerprintAuthorized) {
       status = `verify fingerprint ${this.securityFingerprint}`;
     } else if (this.isClientConnected) {
-      status = 'client connected';
+      const duration = this.sessionStartedAt
+        ? ` (${formatDuration(Date.now() - this.sessionStartedAt)})`
+        : '';
+      status = `client connected${duration}`;
     } else if (this.awaitingRejoin) {
       status = 'awaiting rejoin';
     } else {
@@ -1618,6 +1638,35 @@ class Session {
     }
     if (this.readOnly) status += '  (readonly)';
     return status;
+  }
+
+  // ─── Session Duration Logging ────────────────────────────────────────
+
+  _formatElapsedCompact(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    if (hours > 0) return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+    return `${pad(minutes)}:${pad(seconds)}`;
+  }
+
+  _startDurationLogging() {
+    this._stopDurationLogging();
+    // Log session duration every 5 minutes
+    this.sessionDurationInterval = setInterval(() => {
+      if (!this.sessionStartedAt || this.destroyed) return;
+      const elapsed = Date.now() - this.sessionStartedAt;
+      this.log(`Session active — ${this._formatElapsedCompact(elapsed)}`);
+    }, 5 * 60 * 1000);
+  }
+
+  _stopDurationLogging() {
+    if (this.sessionDurationInterval) {
+      clearInterval(this.sessionDurationInterval);
+      this.sessionDurationInterval = null;
+    }
   }
 }
 
