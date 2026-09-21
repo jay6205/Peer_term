@@ -292,6 +292,25 @@
       startConnection(code);
     });
 
+    // ─── QR Code Auto-Connect ──────────────────────────────────────────────
+    // If the URL contains ?code=XXXXXX (e.g. from scanning a QR code),
+    // auto-fill the input and connect immediately.
+    {
+      const urlParams = new URLSearchParams(window.location.search);
+      const prefilledCode = urlParams.get('code');
+
+      if (prefilledCode && /^\d{6}$/.test(prefilledCode)) {
+        // Strip the code from the URL to prevent it from lingering in browser history
+        const cleanUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, '', cleanUrl || '/');
+
+        // Pre-fill and auto-connect
+        codeInput.value = prefilledCode;
+        // Small delay to let the page finish rendering before connecting
+        setTimeout(() => startConnection(prefilledCode), 100);
+      }
+    }
+
     function showError(msg) {
       errorMsg.textContent = msg;
       errorMsg.classList.add('visible');

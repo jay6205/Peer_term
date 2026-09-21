@@ -11,6 +11,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import qrcode from 'qrcode-terminal';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,9 +48,10 @@ export function printBanner() {
  * @param {string} [opts.startPath] - Starting directory for the session
  * @param {string} [opts.shareUrl] - URL to share (e.g. "https://peerterm.dev")
  */
-export function printSessionBox({ code, expiry, rejoinWindow, mode, shell, startPath, shareUrl }) {
+export async function printSessionBox({ code, expiry, rejoinWindow, mode, shell, startPath, shareUrl }) {
   const spacedCode = code.split('').join(' ');
   const url = shareUrl || 'https://peerterm.dev';
+  const joinUrl = `${url}?code=${code}`;
 
   // Truncate long shell paths to keep box readable
   const shellDisplay = shell.length > 24 ? '...' + shell.slice(-21) : shell;
@@ -90,6 +92,28 @@ export function printSessionBox({ code, expiry, rejoinWindow, mode, shell, start
   console.log(`  │${emptyLine}│`);
   console.log(`  └${hr}┘`);
   console.log('');
+
+  // Render QR code for instant scan-to-join
+  try {
+    const qrString = await new Promise((resolve) => {
+      qrcode.generate(joinUrl, { small: true }, (qr) => {
+        resolve(qr);
+      });
+    });
+
+    console.log('  Scan to join:');
+    console.log('');
+    // Indent each QR line for alignment with the box
+    const qrLines = qrString.split('\n');
+    for (const line of qrLines) {
+      if (line.length > 0) console.log(`    ${line}`);
+    }
+    console.log('');
+    console.log(`  Or open: ${joinUrl}`);
+    console.log('');
+  } catch {
+    // QR generation failed — not critical, code is still shown in the box
+  }
 }
 
 // ─── Help Text ───────────────────────────────────────────────────────────────

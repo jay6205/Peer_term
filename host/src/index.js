@@ -338,7 +338,7 @@ class Session {
       case 'code': {
         this.code = msg.code;
         this.hostToken = msg.hostToken || null;
-        printSessionBox({
+        await printSessionBox({
           code: this.code,
           expiry: formatDuration(this.expiryMs),
           rejoinWindow: formatDuration(this.rejoinMs),
