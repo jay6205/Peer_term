@@ -1,8 +1,8 @@
 {
   "name": "peer-term",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "license": "MIT",
-  "description": "Share your terminal instantly using a 6-digit code. Encrypted. No config.",
+  "description": "Share your terminal instantly using a 6-digit code or QR code. Encrypted. No config.",
   "repository": {
     "type": "git",
     "url": "https://github.com/jay6205/Peer_Term",
@@ -29,6 +29,7 @@
     "terminal-streaming",
     "browser-shell",
     "terminal-emulator",
+    "qr-code",
     "xterm",
     "xtermjs",
     "cli",
