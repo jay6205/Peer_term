@@ -544,12 +544,15 @@ const server = http.createServer((req, res) => {
   }
 
   // Resolve the file to serve from the client directory
+  // Extract pathname to ignore query strings (e.g. ?code=123456)
+  const pathname = req.url.split('?')[0];
+
   let filePath;
-  if (req.url === '/' || req.url === '/index.html') {
+  if (pathname === '/' || pathname === '/index.html') {
     filePath = path.join(CLIENT_DIR, 'index.html');
   } else {
     // Sanitize: resolve and ensure the path stays within CLIENT_DIR
-    const safePath = path.normalize(decodeURIComponent(req.url));
+    const safePath = path.normalize(decodeURIComponent(pathname));
     filePath = path.join(CLIENT_DIR, safePath);
     if (!filePath.startsWith(CLIENT_DIR)) {
       res.writeHead(403);
@@ -564,7 +567,7 @@ const server = http.createServer((req, res) => {
   fs.readFile(filePath, (err, data) => {
     if (err) {
       // If index.html is missing, serve the minimal landing page
-      if (req.url === '/' || req.url === '/index.html') {
+      if (pathname === '/' || pathname === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(`<!DOCTYPE html>
 <html lang="en">
