@@ -19,18 +19,8 @@
  *   --version          Print version number
  */
 
-import * as dotenv from 'dotenv';
-import os from 'os';
-import fs from 'fs';
-import crypto from 'crypto';
-import path from 'path';
-import net from 'net';
-import readline from 'readline';
-import { execFile, spawn } from 'child_process';
-import { fileURLToPath } from 'url';
 import WebSocket from 'ws';
 import pty from 'node-pty';
-import minimist from 'minimist';
 import {
   generateKeyPair,
   exportPublicKey,
@@ -42,265 +32,17 @@ import {
 } from './crypto.js';
 import { HostWebRTC } from './webrtc.js';
 import logger from './logger.js';
-import { printBanner, printSessionBox, printHelp, printVersion } from './ui.js';
-
-// ─── File paths ──────────────────────────────────────────────────────────────
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Load .env from host/ directory (parent of src/)
-dotenv.config({ path: path.join(__dirname, '..', '.env') });
-
-// Load package.json for version information
-let version = 'unknown';
-try {
-  const pkgPath = path.join(__dirname, '..', 'package.json');
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-  version = pkg.version;
-} catch {}
-
-// ─── CLI Argument Parsing ────────────────────────────────────────────────────
-
-const argv = minimist(process.argv.slice(2), {
-  boolean: ['readonly', 'verbose', 'help', 'version', 'secure'],
-  string: ['expiry', 'rejoin', 'relay', 'path'],
-  alias: { h: 'help', v: 'version', V: 'verbose' },
-});
-
-// Detect if --expiry or --rejoin were explicitly passed on the command line
-const expiryFlagPassed = process.argv.some(a => a === '--expiry' || a.startsWith('--expiry='));
-const rejoinFlagPassed = process.argv.some(a => a === '--rejoin' || a.startsWith('--rejoin='));
-
-// Handle --help
-if (argv.help) {
-  printHelp();
-  process.exit(0);
-}
-
-// Handle --version
-if (argv.version) {
-  printVersion();
-  process.exit(0);
-}
-
-// Enable verbose logging
-if (argv.verbose) {
-  logger.setVerbose(true);
-}
-
-// ─── Configuration ───────────────────────────────────────────────────────────
-const DEFAULT_RELAYS = [
-  'wss://relay.dhananjaybalekar.in'
-];
-const RELAY_URLS = argv.relay 
-  ? argv.relay.split(',').map(s => s.trim()) 
-  : (process.env.RELAY_URL ? process.env.RELAY_URL.split(',').map(s => s.trim()) : DEFAULT_RELAYS);
-const HEARTBEAT_INTERVAL_MS = 5000;
-const MAX_MISSED_PINGS = 2;
-
-const UPLOAD_MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB max
-const UPLOAD_MAX_CHUNKS_PER_FILE = Math.ceil(UPLOAD_MAX_FILE_SIZE / 16384);
-const UPLOAD_MAX_CONCURRENT = 3;
-
-// ─── Path Resolution ─────────────────────────────────────────────────────────
-
-function expandTilde(inputPath) {
-  if (inputPath.startsWith('~/') || inputPath === '~') {
-    return inputPath.replace(/^~/, process.env.HOME || process.env.USERPROFILE || '.');
-  }
-  return inputPath;
-}
-
-function resolveStartPath(inputPath) {
-  if (!inputPath) return process.env.HOME || process.env.USERPROFILE || process.cwd();
-
-  const resolved = path.resolve(expandTilde(inputPath));
-
-  if (!fs.existsSync(resolved)) {
-    logger.error(`Path does not exist: ${resolved}`);
-    process.exit(1);
-  }
-
-  const stat = fs.statSync(resolved);
-  if (!stat.isDirectory()) {
-    logger.error(`Path is not a directory: ${resolved}`);
-    process.exit(1);
-  }
-
-  return resolved;
-}
-
-// ─── Duration Parsing ────────────────────────────────────────────────────────
-
-function parseDuration(str) {
-  const match = str.match(/^(\d+)(s|m|h)$/i);
-  if (!match) return null;
-  const value = parseInt(match[1], 10);
-  const unit = match[2].toLowerCase();
-  switch (unit) {
-    case 's': return value * 1000;
-    case 'm': return value * 60 * 1000;
-    case 'h': return value * 60 * 60 * 1000;
-    default:  return null;
-  }
-}
-
-function formatDuration(ms) {
-  if (ms >= 3600000) return `${Math.round(ms / 3600000)} hour(s)`;
-  if (ms >= 60000) return `${Math.round(ms / 60000)} minute(s)`;
-  return `${Math.round(ms / 1000)} second(s)`;
-}
-
-function getExpiry() {
-  const parsed = parseDuration(argv.expiry);
-  if (!parsed) {
-    logger.error(`Invalid expiry format: "${argv.expiry}". Use 30s, 5m, or 1h.`);
-    process.exit(1);
-  }
-  return parsed;
-}
-
-// ─── Interactive Prompts ─────────────────────────────────────────────────────
-
-/**
- * Prompt the user for a duration value in the terminal.
- * Re-prompts on invalid input until a valid value is entered or Enter is pressed for default.
- *
- * @param {Object} opts
- * @param {string} opts.label       - Main prompt question
- * @param {string} opts.description - Additional context shown below the question
- * @param {number} opts.defaultMs   - Default value in milliseconds
- * @param {string} opts.defaultLabel - Human-readable default (e.g. "5 minutes")
- * @param {number} opts.minMs       - Minimum allowed value in milliseconds
- * @param {number} opts.maxMs       - Maximum allowed value in milliseconds
- * @param {string} opts.minLabel    - Human-readable minimum (e.g. "2m")
- * @param {string} opts.maxLabel    - Human-readable maximum (e.g. "24h")
- * @returns {Promise<number>} Resolved duration in milliseconds
- */
-function promptDuration({ label, description, defaultMs, defaultLabel, minMs, maxMs, minLabel, maxLabel }) {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-
-    const ask = () => {
-      console.log('');
-      console.log(`  ${label}`);
-      if (description) console.log(`  ${description}`);
-      console.log(`  Enter a value between ${minLabel} and ${maxLabel} (e.g. ${minLabel}, 30m, 2h)`);
-      console.log(`  Default is ${defaultLabel}. Press Enter to use default.`);
-      rl.question('  > ', (answer) => {
-        const input = answer.trim();
-
-        // Empty input — use default
-        if (!input) {
-          rl.close();
-          resolve(defaultMs);
-          return;
-        }
-
-        const parsed = parseDuration(input);
-        if (!parsed || parsed < minMs || parsed > maxMs) {
-          console.log(`  Invalid value. Please enter a time between ${minLabel} and ${maxLabel} (e.g. 5m, 1h).`);
-          ask();
-          return;
-        }
-
-        rl.close();
-        resolve(parsed);
-      });
-    };
-
-    ask();
-  });
-}
-
-/**
- * Get the session code expiry — from flag, interactive prompt, or silent default.
- */
-async function getExpiryInteractive() {
-  const DEFAULT_EXPIRY = 5 * 60 * 1000;       // 5 minutes
-  const MIN_EXPIRY     = 2 * 60 * 1000;       // 2 minutes
-  const MAX_EXPIRY     = 24 * 60 * 60 * 1000; // 24 hours
-
-  // If --expiry flag was explicitly passed, use it (validate and exit on error)
-  if (expiryFlagPassed) {
-    const parsed = parseDuration(argv.expiry);
-    if (!parsed || parsed < MIN_EXPIRY || parsed > MAX_EXPIRY) {
-      logger.error(`Invalid expiry: "${argv.expiry}". Must be between 2m and 24h.`);
-      process.exit(1);
-    }
-    return parsed;
-  }
-
-  // Non-interactive — use default silently
-  if (!process.stdin.isTTY) return DEFAULT_EXPIRY;
-
-  // Interactive prompt
-  return promptDuration({
-    label: 'How long should the session code be valid?',
-    description: null,
-    defaultMs: DEFAULT_EXPIRY,
-    defaultLabel: '5 minutes',
-    minMs: MIN_EXPIRY,
-    maxMs: MAX_EXPIRY,
-    minLabel: '2m',
-    maxLabel: '24h',
-  });
-}
-
-/**
- * Get the reconnection window — from flag, interactive prompt, or silent default.
- */
-async function getRejoinInteractive() {
-  const DEFAULT_REJOIN = 5 * 60 * 1000;       // 5 minutes
-  const MIN_REJOIN     = 5 * 60 * 1000;       // 5 minutes
-  const MAX_REJOIN     = 6 * 60 * 60 * 1000;  // 6 hours
-
-  // If --rejoin flag was explicitly passed, use it
-  if (rejoinFlagPassed) {
-    const parsed = parseDuration(argv.rejoin);
-    if (!parsed || parsed < MIN_REJOIN || parsed > MAX_REJOIN) {
-      logger.error(`Invalid rejoin window: "${argv.rejoin}". Must be between 5m and 6h.`);
-      process.exit(1);
-    }
-    return parsed;
-  }
-
-  // Non-interactive — use default silently
-  if (!process.stdin.isTTY) return DEFAULT_REJOIN;
-
-  // Interactive prompt
-  return promptDuration({
-    label: 'How long should the reconnection window be?',
-    description: 'This is how long a disconnected client or host has to rejoin before the session ends.',
-    defaultMs: DEFAULT_REJOIN,
-    defaultLabel: '2 minutes',
-    minMs: MIN_REJOIN,
-    maxMs: MAX_REJOIN,
-    minLabel: '5m',
-    maxLabel: '6h',
-  });
-}
-
-// ─── Shell Detection ─────────────────────────────────────────────────────────
-
-function detectShell() {
-  const platform = os.platform();
-  if (process.env.SHELL) return process.env.SHELL;
-  if (platform === 'win32') return process.env.COMSPEC || 'powershell.exe';
-  try {
-    const passwd = fs.readFileSync('/etc/passwd', 'utf-8');
-    const username = os.userInfo().username;
-    const line = passwd.split('\n').find((l) => l.startsWith(username + ':'));
-    if (line) {
-      const shell = line.split(':').pop().trim();
-      if (shell) return shell;
-    }
-  } catch {}
-  return platform === 'win32' ? 'powershell.exe' : 'bash';
-}
+import { printSessionBox } from './ui.js';
+import {
+  argv,
+  version,
+  RELAY_URLS,
+  HEARTBEAT_INTERVAL_MS,
+  MAX_MISSED_PINGS,
+} from './config.js';
+import { formatDuration } from './utils.js';
+import { FileTransferHandler } from './file-transfer.js';
+import { ViewerServer } from './viewer.js';
 
 // ─── Session Class ───────────────────────────────────────────────────────────
 
@@ -339,18 +81,31 @@ class Session {
     this.webrtc = null;
     this.useDataChannel = false;
 
-    // File upload: in-progress file transfers from client
-    // Shape: { [id]: { name, size, totalChunks, chunks: Map<index, Buffer> } }
-    this._incomingFiles = {};
+    // File upload handler
+    this._fileTransfer = new FileTransferHandler(this._buildFileTransferContext());
 
-    // Local TCP viewer (new terminal window)
-    this.viewerServer = null;
-    this.viewerSocket = null;
-    this.viewerToken = null;   // Random nonce for viewer auth
+    // Local TCP viewer
+    this._viewer = null;
 
     // Session duration tracking
     this.sessionStartedAt = null;        // Timestamp: when the terminal session became active
     this.sessionDurationInterval = null; // Interval: periodic CLI status log
+  }
+
+  /**
+   * Build the context object for FileTransferHandler.
+   * Called on construction and whenever shared key changes.
+   */
+  _buildFileTransferContext() {
+    return {
+      get sharedKey() { return this.session.sharedKey; },
+      get readOnly() { return this.session.readOnly; },
+      get ptyProcess() { return this.session.ptyProcess; },
+      log: (msg) => this.log(msg),
+      logDebug: (msg) => this.logDebug(msg),
+      sendEncrypted: (payload) => this._sendEncryptedToClient(payload),
+      session: this,
+    };
   }
 
   log(msg) {
@@ -542,146 +297,7 @@ class Session {
           return;
         }
 
-        switch (msg.type) {
-          case 'code': {
-            this.code = msg.code;
-            this.hostToken = msg.hostToken || null;
-            printSessionBox({
-              code: this.code,
-              expiry: formatDuration(this.expiryMs),
-              rejoinWindow: formatDuration(this.rejoinMs),
-              mode: (this.readOnly ? 'Read-Only' : 'Read-Write') + (this.secureMode ? ' (Secure)' : ''),
-              shell: this.shell,
-              startPath: this.startPath,
-              shareUrl: url.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
-            });
-            resolve(this.code);
-            break;
-          }
-
-          case 'client-connected': {
-            if (this.awaitingRejoin) {
-              this.log('Client reconnected.');
-              this.awaitingRejoin = false;
-            } else {
-              this.log('Client connected! Starting key exchange...');
-            }
-            this.isClientConnected = true;
-            this.missedPings = 0;
-
-            if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
-              this.startHeartbeat();
-              break;
-            }
-
-            await this._beginKeyExchange();
-            break;
-          }
-
-          case 'key-exchange': {
-            await this._completeKeyExchange(msg.publicKey);
-            break;
-          }
-
-          // Phase 4: WebRTC signaling messages
-          case 'signal': {
-            if (this.webrtc && this.sharedKey) {
-              try {
-                const plaintext = await decrypt(this.sharedKey, msg.payload);
-                this.webrtc.handleSignal(JSON.parse(plaintext));
-              } catch (err) {
-                this.logDebug(`[WebRTC] Signal decryption failed: ${err.message}`);
-              }
-            }
-            break;
-          }
-
-          case 'heartbeat': {
-            this.missedPings = 0;
-            break;
-          }
-
-          case 'data': {
-            if (!this.sharedKey || !this.ptyProcess) return;
-            try {
-              const plaintext = await decrypt(this.sharedKey, msg.payload);
-
-              // Check if this is a resize event
-              if (msg.meta === 'resize') {
-                try {
-                  const resizeData = JSON.parse(plaintext);
-                  if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
-                    this.ptyProcess.resize(resizeData.cols, resizeData.rows);
-                    this.logDebug(`Terminal resized to ${resizeData.cols}x${resizeData.rows}`);
-                  }
-                } catch {}
-                return;
-              }
-
-              // Check if decrypted message is a file transfer message (file-start, file-chunk, file-end)
-              try {
-                const parsedMsg = JSON.parse(plaintext);
-                if (parsedMsg && typeof parsedMsg.type === 'string' && parsedMsg.type.startsWith('file-')) {
-                  if (this.readOnly) {
-                    this._sendFileError(parsedMsg.id, 'File uploads are disabled in read-only mode');
-                    return;
-                  }
-                  this._handleFileMessage(parsedMsg);
-                  return;
-                }
-              } catch {
-                // Not JSON — normal keystroke data, fall through
-              }
-
-              // Normal keystroke — drop if read-only
-              if (this.readOnly) return;
-              this.ptyProcess.write(plaintext);
-            } catch (err) {
-              this.log(`Decryption failed: ${err.message}`);
-            }
-            break;
-          }
-
-          case 'peer-disconnected': {
-            if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
-              this.log('Client relay connection lost; direct DataChannel still active.');
-              this.missedPings = 0;
-              this.startHeartbeat();
-              break;
-            }
-
-            this.log(`Client disconnected. Rejoin window: ${formatDuration(this.rejoinMs)}.`);
-            this.isClientConnected = false;
-            this.awaitingRejoin = true;
-            this.sharedKey = null;
-            this.keyPair = null;
-            this.hostPublicKeyBase64 = null;
-            this.clientPublicKeyBase64 = null;
-            this.securityFingerprint = null;
-            this.fingerprintAuthorized = false;
-            this.stopHeartbeat();
-            // Phase 4: Clean up WebRTC on peer disconnect
-            this._cleanupWebRTC();
-            break;
-          }
-
-          case 'session-expired': {
-            this.log('Rejoin window expired. Session ended.');
-            this.destroy();
-            break;
-          }
-
-          case 'rejoined': {
-            this.log(`\u2705 Reconnected. Session restored. (code: ${msg.code})`);
-            await this._restartPeerSessionAfterHostRejoin();
-            break;
-          }
-
-          case 'error': {
-            this.log(`Error: ${msg.msg}`);
-            break;
-          }
-        }
+        await this._handleRelayMessage(msg, url, resolve);
         } catch (err) {
           this._handleMessageError(err);
         }
@@ -711,6 +327,161 @@ class Session {
         }
       });
     });
+  }
+
+  /**
+   * Central relay message handler — shared by _tryConnect and _attachWsHandlers.
+   * The optional `resolve` parameter is only provided during initial registration.
+   */
+  async _handleRelayMessage(msg, url, resolve) {
+    switch (msg.type) {
+      case 'code': {
+        this.code = msg.code;
+        this.hostToken = msg.hostToken || null;
+        printSessionBox({
+          code: this.code,
+          expiry: formatDuration(this.expiryMs),
+          rejoinWindow: formatDuration(this.rejoinMs),
+          mode: (this.readOnly ? 'Read-Only' : 'Read-Write') + (this.secureMode ? ' (Secure)' : ''),
+          shell: this.shell,
+          startPath: this.startPath,
+          shareUrl: url.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
+        });
+        if (resolve) resolve(this.code);
+        break;
+      }
+
+      case 'client-connected': {
+        if (this.awaitingRejoin) {
+          this.log('Client reconnected.');
+          this.awaitingRejoin = false;
+        } else {
+          this.log('Client connected! Starting key exchange...');
+        }
+        this.isClientConnected = true;
+        this.missedPings = 0;
+
+        if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+          this.startHeartbeat();
+          break;
+        }
+
+        await this._beginKeyExchange();
+        break;
+      }
+
+      case 'key-exchange': {
+        await this._completeKeyExchange(msg.publicKey);
+        break;
+      }
+
+      // Phase 4: WebRTC signaling messages
+      case 'signal': {
+        if (this.webrtc && this.sharedKey) {
+          try {
+            const plaintext = await decrypt(this.sharedKey, msg.payload);
+            this.webrtc.handleSignal(JSON.parse(plaintext));
+          } catch (err) {
+            this.logDebug(`[WebRTC] Signal decryption failed: ${err.message}`);
+          }
+        }
+        break;
+      }
+
+      case 'heartbeat': {
+        this.missedPings = 0;
+        break;
+      }
+
+      case 'data': {
+        if (!this.sharedKey || !this.ptyProcess) return;
+        try {
+          const plaintext = await decrypt(this.sharedKey, msg.payload);
+
+          // Check if this is a resize event
+          if (msg.meta === 'resize') {
+            try {
+              const resizeData = JSON.parse(plaintext);
+              if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
+                this.ptyProcess.resize(resizeData.cols, resizeData.rows);
+                this.logDebug(`Terminal resized to ${resizeData.cols}x${resizeData.rows}`);
+              }
+            } catch {}
+            return;
+          }
+
+          // Check if decrypted message is a file transfer message (file-start, file-chunk, file-end)
+          try {
+            const parsedMsg = JSON.parse(plaintext);
+            if (parsedMsg && typeof parsedMsg.type === 'string' && parsedMsg.type.startsWith('file-')) {
+              if (this.readOnly) {
+                this._fileTransfer._sendError(parsedMsg.id, 'File uploads are disabled in read-only mode');
+                return;
+              }
+              this._fileTransfer.handleMessage(parsedMsg);
+              return;
+            }
+          } catch {
+            // Not JSON — normal keystroke data, fall through
+          }
+
+          // Normal keystroke — drop if read-only
+          if (this.readOnly) return;
+          this.ptyProcess.write(plaintext);
+        } catch (err) {
+          this.log(`Decryption failed: ${err.message}`);
+        }
+        break;
+      }
+
+      case 'peer-disconnected': {
+        if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
+          this.log('Client relay connection lost; direct DataChannel still active.');
+          this.missedPings = 0;
+          this.startHeartbeat();
+          break;
+        }
+
+        this.log(`Client disconnected. Rejoin window: ${formatDuration(this.rejoinMs)}.`);
+        this.isClientConnected = false;
+        this.awaitingRejoin = true;
+        this._resetCryptoState();
+        this.stopHeartbeat();
+        // Phase 4: Clean up WebRTC on peer disconnect
+        this._cleanupWebRTC();
+        break;
+      }
+
+      case 'session-expired': {
+        this.log('Rejoin window expired. Session ended.');
+        this.destroy();
+        break;
+      }
+
+      case 'rejoined': {
+        this.log(`\u2705 Reconnected. Session restored. (code: ${msg.code})`);
+        await this._restartPeerSessionAfterHostRejoin();
+        break;
+      }
+
+      case 'error': {
+        this.log(`Error: ${msg.msg}`);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Reset all crypto state (shared key, key pair, fingerprint).
+   * Used on peer disconnect and heartbeat loss.
+   */
+  _resetCryptoState() {
+    this.sharedKey = null;
+    this.keyPair = null;
+    this.hostPublicKeyBase64 = null;
+    this.clientPublicKeyBase64 = null;
+    this.securityFingerprint = null;
+    this.fingerprintAuthorized = false;
   }
 
   // ─── Send encrypted resize to client ────────────────────────────────
@@ -745,12 +516,7 @@ class Session {
         this.log('Client heartbeat lost. Waiting for reconnect...');
         this.isClientConnected = false;
         this.awaitingRejoin = true;
-        this.sharedKey = null;
-        this.keyPair = null;
-        this.hostPublicKeyBase64 = null;
-        this.clientPublicKeyBase64 = null;
-        this.securityFingerprint = null;
-        this.fingerprintAuthorized = false;
+        this._resetCryptoState();
         this.stopHeartbeat();
       }
     }, HEARTBEAT_INTERVAL_MS);
@@ -779,8 +545,8 @@ class Session {
 
     this.ptyProcess.onData((data) => {
       // Mirror PTY output to local viewer terminal
-      if (this.viewerSocket) {
-        try { this.viewerSocket.write(data); } catch {}
+      if (this._viewer) {
+        this._viewer.write(data);
       }
 
       if (!this.sharedKey) return;
@@ -796,10 +562,10 @@ class Session {
     });
 
     // Open a local viewer terminal for the host
-    this._startViewerServer();
+    this._startViewer();
   }
 
-  // ─── Local TCP viewer for host terminal ─────────────────────────────
+  // ─── PTY Output Queue ──────────────────────────────────────────────
   _queuePtyOutput(data, sharedKey) {
     this.ptyOutputQueue = this.ptyOutputQueue
       .then(() => this._sendPtyOutput(data, sharedKey))
@@ -852,364 +618,25 @@ class Session {
     }
   }
 
-  // ─── File Upload Handling ─────────────────────────────────────────────
-
-  /**
-   * Route file transfer messages (file-start, file-chunk, file-end).
-   * All file messages arrive over the DataChannel only.
-   */
-  _handleFileMessage(msg) {
-    // Defense-in-depth: reject all file operations in read-only sessions
-    if (this.readOnly) {
-      this._sendFileError(msg.id, 'File uploads are disabled in read-only mode');
-      return;
-    }
-
-    switch (msg.type) {
-      case 'file-start': {
-        // Validate required fields
-        if (!msg.id || !msg.name || msg.size === undefined || msg.totalChunks === undefined) {
-          this._sendFileError(msg.id, 'Invalid file-start message');
-          return;
+  // ─── Viewer ─────────────────────────────────────────────────────────
+  _startViewer() {
+    this._viewer = new ViewerServer({
+      code: this.code,
+      log: (msg) => this.log(msg),
+      logDebug: (msg) => this.logDebug(msg),
+      onResize: (cols, rows) => {
+        if (this.ptyProcess) {
+          this.ptyProcess.resize(cols, rows);
+          this._sendResize(cols, rows);
         }
-
-        if (msg.size > UPLOAD_MAX_FILE_SIZE) {
-          this._sendFileError(msg.id, `File exceeds maximum size of ${UPLOAD_MAX_FILE_SIZE / 1024 / 1024}MB`);
-          return;
+      },
+      onKeystroke: (data) => {
+        if (this.ptyProcess) {
+          this.ptyProcess.write(data);
         }
-
-        if (msg.totalChunks > UPLOAD_MAX_CHUNKS_PER_FILE) {
-          this._sendFileError(msg.id, 'File requires too many chunks');
-          return;
-        }
-
-        if (Object.keys(this._incomingFiles).length >= UPLOAD_MAX_CONCURRENT) {
-          this._sendFileError(msg.id, 'Too many concurrent uploads');
-          return;
-        }
-
-        this.log(`File upload started: "${msg.name}" (${msg.size} bytes, ${msg.totalChunks} chunks)`);
-        this._incomingFiles[msg.id] = {
-          name: msg.name,
-          size: msg.size,
-          totalChunks: msg.totalChunks,
-          receivedSize: 0,
-          chunks: new Map(),
-        };
-        break;
-      }
-      case 'file-chunk': {
-        const transfer = this._incomingFiles[msg.id];
-        if (!transfer) {
-          this._sendFileError(msg.id, 'Unknown transfer ID');
-          return;
-        }
-
-        const chunkData = Buffer.from(msg.data, 'base64');
-        
-        if (transfer.chunks.size >= transfer.totalChunks) {
-          this._sendFileError(msg.id, 'Too many chunks received');
-          delete this._incomingFiles[msg.id];
-          return;
-        }
-
-        if (transfer.receivedSize + chunkData.length > transfer.size) {
-          this._sendFileError(msg.id, 'Received size exceeds declared size');
-          delete this._incomingFiles[msg.id];
-          return;
-        }
-
-        transfer.chunks.set(msg.index, chunkData);
-        transfer.receivedSize += chunkData.length;
-        this.logDebug(`File chunk ${msg.index + 1}/${transfer.totalChunks} received for "${transfer.name}"`);
-        break;
-      }
-      case 'file-end': {
-        this._finalizeFile(msg.id);
-        break;
-      }
-      case 'file-cancel': {
-        if (this._incomingFiles[msg.id]) {
-          delete this._incomingFiles[msg.id];
-          this.log(`File upload cancelled by client: ${msg.id}`);
-        }
-        break;
-      }
-    }
-  }
-
-  /**
-   * Reassemble all chunks in order and write the completed file to disk.
-   * Saves to ~/peerterm-uploads/<filename>.
-   */
-  async _finalizeFile(id) {
-    const transfer = this._incomingFiles[id];
-    if (!transfer) {
-      this._sendFileError(id, 'Unknown transfer ID');
-      return;
-    }
-
-    // Check all chunks are present
-    for (let i = 0; i < transfer.totalChunks; i++) {
-      if (!transfer.chunks.has(i)) {
-        this.log(`File "${transfer.name}" missing chunk ${i}`);
-        this._sendFileError(id, `Missing chunk ${i}`);
-        delete this._incomingFiles[id];
-        return;
-      }
-    }
-
-    // Reassemble in order using Buffer.concat
-    const ordered = [];
-    for (let i = 0; i < transfer.totalChunks; i++) {
-      ordered.push(transfer.chunks.get(i));
-    }
-    const fileData = Buffer.concat(ordered);
-
-    // Determine save path: ~/peerterm-uploads/<filename>
-    const homeDir = os.homedir();
-    const uploadDir = path.join(homeDir, 'peerterm-uploads');
-    // Sanitize filename to prevent path traversal (e.g., "../../../etc/passwd")
-    const baseName = path.basename(transfer.name);
-    if (!baseName || baseName === '.' || baseName === '..') {
-      this._sendFileError(id, 'Invalid filename');
-      delete this._incomingFiles[id];
-      return;
-    }
-    const savePath = path.join(uploadDir, baseName);
-
-
-
-
-    try {
-      await fs.promises.mkdir(uploadDir, { recursive: true });
-      await fs.promises.writeFile(savePath, fileData);
-
-      this.log(`File saved: ${savePath}`);
-
-      // Write green ANSI message into the PTY to show the save path
-      if (this.ptyProcess) {
-        this.ptyProcess.write(`\r\n\x1b[32m[PeerTerm] File saved: ${savePath}\x1b[0m\r\n`);
-      }
-
-      // Send ack to client
-      this._sendFileAck(id, transfer.name);
-    } catch (err) {
-      this.log(`Failed to save file "${transfer.name}": ${err.message}`);
-      this._sendFileError(id, `Save failed: ${err.message}`);
-    }
-
-    delete this._incomingFiles[id];
-  }
-
-  /**
-   * Send file-ack to the client confirming successful file save.
-   */
-  async _sendFileAck(id, name) {
-    if (!this.sharedKey) return;
-    try {
-      const ackJson = JSON.stringify({ type: 'file-ack', id, name });
-      const payload = await encrypt(this.sharedKey, ackJson);
-      this._sendEncryptedToClient(payload);
-    } catch (err) {
-      this.log(`Failed to send file-ack: ${err.message}`);
-    }
-  }
-
-  /**
-   * Send file-error to the client with an error message.
-   */
-  async _sendFileError(id, msg) {
-    if (!this.sharedKey) return;
-    try {
-      const errJson = JSON.stringify({ type: 'file-error', id, msg });
-      const payload = await encrypt(this.sharedKey, errJson);
-      this._sendEncryptedToClient(payload);
-    } catch (err) {
-      this.log(`Failed to send file-error: ${err.message}`);
-    }
-  }
-
-  _startViewerServer() {
-    // Generate a random nonce for viewer authentication
-    this.viewerToken = crypto.randomBytes(16).toString('hex');
-
-    this.viewerServer = net.createServer((socket) => {
-      // Close any existing viewer connection before accepting a new one
-      if (this.viewerSocket) {
-        this.logDebug('Replacing existing viewer connection.');
-        this.viewerSocket.removeAllListeners();
-        try { this.viewerSocket.destroy(); } catch {}
-      }
-
-      // ── Token authentication gate ──────────────────────────────────
-      // The first data packet must be the viewer token followed by a newline.
-      // Reject the connection if no valid token arrives within 2 seconds.
-      let authenticated = false;
-      let authBuf = '';
-
-      const authTimeout = setTimeout(() => {
-        if (!authenticated) {
-          this.logDebug('Viewer auth timeout — closing connection.');
-          try { socket.destroy(); } catch {}
-        }
-      }, 2000);
-
-      const onAuthData = (data) => {
-        authBuf += data.toString();
-        const newlineIdx = authBuf.indexOf('\n');
-        if (newlineIdx === -1) {
-          // Accumulated too much data without a newline — reject
-          if (authBuf.length > 256) {
-            clearTimeout(authTimeout);
-            this.logDebug('Viewer auth buffer overflow — closing connection.');
-            try { socket.destroy(); } catch {}
-          }
-          return;
-        }
-
-        const token = authBuf.slice(0, newlineIdx).trim();
-        const remaining = authBuf.slice(newlineIdx + 1);
-        clearTimeout(authTimeout);
-        socket.removeListener('data', onAuthData);
-
-        if (token !== this.viewerToken) {
-          this.logDebug('Viewer auth failed — wrong token.');
-          try { socket.destroy(); } catch {}
-          return;
-        }
-
-        // Authenticated — promote to active viewer
-        authenticated = true;
-        this.viewerSocket = socket;
-        this.log('Host viewer connected (authenticated).');
-
-        // Install the real data handler
-        let recvBuf = '';
-
-        // Process any leftover data that arrived after the token line
-        if (remaining.length > 0) {
-          handleViewerData(remaining);
-        }
-
-        socket.on('data', (chunk) => handleViewerData(chunk.toString()));
-
-        const handleViewerData = (chunk) => {
-          // Control messages start with \x00{
-          if (recvBuf.length > 0 || chunk.startsWith('\x00{')) {
-            recvBuf += chunk;
-            let nlIdx;
-            while ((nlIdx = recvBuf.indexOf('\n')) !== -1) {
-              const line = recvBuf.slice(0, nlIdx).trim();
-              recvBuf = recvBuf.slice(nlIdx + 1);
-
-              if (line.startsWith('\x00')) {
-                try {
-                  const msg = JSON.parse(line.slice(1));
-                  if (msg.type === 'resize' &&
-                      Number.isInteger(msg.cols) && msg.cols > 0 &&
-                      Number.isInteger(msg.rows) && msg.rows > 0 &&
-                      this.ptyProcess) {
-                    this.ptyProcess.resize(msg.cols, msg.rows);
-                    this._sendResize(msg.cols, msg.rows);
-                    this.logDebug(`Viewer resized to ${msg.cols}x${msg.rows}`);
-                  }
-                } catch {}
-              } else if (this.ptyProcess) {
-                 this.ptyProcess.write(line + '\n');
-              }
-            }
-            // Flush any non-control data left in the buffer
-            if (recvBuf.length > 0 && !recvBuf.startsWith('\x00')) {
-               if (this.ptyProcess) this.ptyProcess.write(recvBuf);
-               recvBuf = '';
-            }
-            return;
-          }
-
-          // Host keystrokes → PTY (host always has access)
-          if (this.ptyProcess) {
-            this.ptyProcess.write(chunk);
-          }
-        };
-
-        socket.on('close', () => {
-          this.viewerSocket = null;
-          this.logDebug('Host viewer disconnected.');
-        });
-
-        socket.on('error', () => {
-          this.viewerSocket = null;
-        });
-      };
-
-      socket.on('data', onAuthData);
-
-      socket.on('error', () => {
-        clearTimeout(authTimeout);
-      });
+      },
     });
-
-    this.viewerServer.listen(0, '127.0.0.1', () => {
-      const port = this.viewerServer.address().port;
-      this.logDebug(`Viewer server on port ${port}`);
-      this._openViewerTerminal(port, this.viewerToken);
-    });
-
-    this.viewerServer.on('error', (err) => {
-      this.log(`Viewer server error: ${err.message}`);
-      this.viewerServer = null;
-    });
-  }
-
-  _openViewerTerminal(port, token) {
-    if (!/^[A-Za-z0-9_-]+$/.test(this.code)) {
-      this.log('Invalid session code format. Aborting viewer terminal.');
-      return;
-    }
-
-    const viewerScript = path.join(__dirname, 'session-viewer.js');
-    const platform = os.platform();
-    const portStr = String(port);
-    const nodeArgs = [viewerScript, portStr, this.code, token];
-
-    if (platform === 'win32') {
-      // spawn with 'cmd' to open a new window; arguments are passed as an
-      // array so the install path is never interpreted by the shell.
-      spawn('cmd', ['/c', 'start', `PeerTerm - ${this.code}`, 'cmd', '/c', 'node', ...nodeArgs], {
-        stdio: 'ignore',
-        detached: true,
-        windowsHide: false,
-      }).unref();
-    } else if (platform === 'darwin') {
-      // osascript receives the AppleScript source as a single -e argument;
-      // node args are baked into the script string, but execFile does NOT
-      // invoke a shell so the outer path cannot break out.
-      const script = `tell app "Terminal" to do script "node '${viewerScript.replace(/'/g, "'\\''")}' ${portStr} ${this.code} ${token}"`;
-      execFile('osascript', ['-e', script], { stdio: 'ignore' }, () => {});
-    } else {
-      // Linux: try common terminal emulators in order, falling through on
-      // failure.  Each call uses execFile (no shell), so paths with
-      // metacharacters are safe.
-      const tryTerminals = [
-        ['x-terminal-emulator', ['-e', 'node', ...nodeArgs]],
-        ['gnome-terminal', ['--', 'node', ...nodeArgs]],
-        ['xterm', ['-e', 'node', ...nodeArgs]],
-      ];
-
-      const tryNext = (index) => {
-        if (index >= tryTerminals.length) {
-          this.log('Could not open any terminal emulator for viewer.');
-          return;
-        }
-        const [cmd, args] = tryTerminals[index];
-        execFile(cmd, args, { stdio: 'ignore' }, (err) => {
-          if (err) tryNext(index + 1);
-        });
-      };
-      tryNext(0);
-    }
-    this.log('Opening terminal viewer...');
+    this._viewer.start();
   }
 
   // ─── Host Reconnect Logic ───────────────────────────────────────────
@@ -1309,7 +736,7 @@ class Session {
 
   /**
    * Re-attach message/close/error handlers to a new WebSocket after rejoin.
-   * This mirrors the handlers set in _tryConnect but skips the initial registration flow.
+   * Uses the shared _handleRelayMessage method to avoid duplicating the switch block.
    */
   _attachWsHandlers(newWs) {
     newWs.on('message', async (raw) => {
@@ -1326,127 +753,7 @@ class Session {
         return;
       }
 
-      switch (msg.type) {
-        case 'client-connected': {
-          if (this.awaitingRejoin) {
-            this.log('Client reconnected.');
-            this.awaitingRejoin = false;
-          } else {
-            this.log('Client connected! Starting key exchange...');
-          }
-          this.isClientConnected = true;
-          this.missedPings = 0;
-
-          if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
-            // Keep existing keys if direct session is healthy
-            this.startHeartbeat();
-            break;
-          }
-
-          await this._beginKeyExchange();
-          break;
-        }
-
-        case 'key-exchange': {
-          await this._completeKeyExchange(msg.publicKey);
-          break;
-        }
-
-        case 'signal': {
-          if (this.webrtc && this.sharedKey) {
-            try {
-              const plaintext = await decrypt(this.sharedKey, msg.payload);
-              this.webrtc.handleSignal(JSON.parse(plaintext));
-            } catch (err) {
-              this.logDebug(`[WebRTC] Signal decryption failed: ${err.message}`);
-            }
-          }
-          break;
-        }
-
-        case 'heartbeat': {
-          this.missedPings = 0;
-          break;
-        }
-
-        case 'data': {
-          if (!this.sharedKey || !this.ptyProcess) return;
-          try {
-            const plaintext = await decrypt(this.sharedKey, msg.payload);
-
-            if (msg.meta === 'resize') {
-              try {
-                const resizeData = JSON.parse(plaintext);
-                if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
-                  this.ptyProcess.resize(resizeData.cols, resizeData.rows);
-                  this.logDebug(`Terminal resized to ${resizeData.cols}x${resizeData.rows}`);
-                }
-              } catch {}
-              return;
-            }
-
-            // Check if decrypted message is a file transfer message
-            try {
-              const parsedMsg = JSON.parse(plaintext);
-              if (parsedMsg && typeof parsedMsg.type === 'string' && parsedMsg.type.startsWith('file-')) {
-                if (this.readOnly) {
-                  this._sendFileError(parsedMsg.id, 'File uploads are disabled in read-only mode');
-                  return;
-                }
-                this._handleFileMessage(parsedMsg);
-                return;
-              }
-            } catch {
-              // Not JSON — normal keystroke data, fall through
-            }
-
-            if (this.readOnly) return;
-            this.ptyProcess.write(plaintext);
-          } catch (err) {
-            this.log(`Decryption failed: ${err.message}`);
-          }
-          break;
-        }
-
-        case 'peer-disconnected': {
-          if (this.useDataChannel && this.webrtc && this.webrtc.isActive()) {
-            this.log('Client relay connection lost; direct DataChannel still active.');
-            this.missedPings = 0;
-            this.startHeartbeat();
-            break;
-          }
-
-          this.log(`Client disconnected. Rejoin window: ${formatDuration(this.rejoinMs)}.`);
-          this.isClientConnected = false;
-          this.awaitingRejoin = true;
-          this.sharedKey = null;
-          this.keyPair = null;
-          this.hostPublicKeyBase64 = null;
-          this.clientPublicKeyBase64 = null;
-          this.securityFingerprint = null;
-          this.fingerprintAuthorized = false;
-          this.stopHeartbeat();
-          this._cleanupWebRTC();
-          break;
-        }
-
-        case 'session-expired': {
-          this.log('Rejoin window expired. Session ended.');
-          this.destroy();
-          break;
-        }
-
-        case 'rejoined': {
-          this.log(`Reconnected. Session restored. (code: ${msg.code})`);
-          await this._restartPeerSessionAfterHostRejoin();
-          break;
-        }
-
-        case 'error': {
-          this.log(`Error: ${msg.msg}`);
-          break;
-        }
-      }
+      await this._handleRelayMessage(msg, this.relayUrl, null);
       } catch (err) {
         this._handleMessageError(err);
       }
@@ -1478,15 +785,11 @@ class Session {
     this._stopReconnecting();
     this._stopDurationLogging();
     // Clean up in-progress file uploads
-    this._incomingFiles = {};
+    this._fileTransfer.cleanup();
     // Clean up viewer
-    if (this.viewerSocket) {
-      try { this.viewerSocket.destroy(); } catch {}
-      this.viewerSocket = null;
-    }
-    if (this.viewerServer) {
-      try { this.viewerServer.close(); } catch {}
-      this.viewerServer = null;
+    if (this._viewer) {
+      this._viewer.destroy();
+      this._viewer = null;
     }
     // Phase 4: Clean up WebRTC
     this._cleanupWebRTC();
@@ -1558,10 +861,10 @@ class Session {
           const msg = JSON.parse(plaintext);
           if (msg && typeof msg.type === 'string' && msg.type.startsWith('file-')) {
             if (this.readOnly) {
-              this._sendFileError(msg.id, 'File uploads are disabled in read-only mode');
+              this._fileTransfer._sendError(msg.id, 'File uploads are disabled in read-only mode');
               return;
             }
-            this._handleFileMessage(msg);
+            this._fileTransfer.handleMessage(msg);
             return;
           }
         } catch {
@@ -1599,11 +902,7 @@ class Session {
       return;
     }
 
-    this.sharedKey = null;
-    this.hostPublicKeyBase64 = null;
-    this.clientPublicKeyBase64 = null;
-    this.securityFingerprint = null;
-    this.fingerprintAuthorized = false;
+    this._resetCryptoState();
     this._cleanupWebRTC();
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -1672,7 +971,7 @@ class Session {
 
 // ─── Session Manager ─────────────────────────────────────────────────────────
 
-class SessionManager {
+export class SessionManager {
   constructor(shell, expiryMs, rejoinMs, readOnly, startPath) {
     this.shell = shell;
     this.expiryMs = expiryMs;
@@ -1736,114 +1035,3 @@ class SessionManager {
     this.sessions.clear();
   }
 }
-
-// ─── Main ────────────────────────────────────────────────────────────────────
-
-async function main() {
-  const shell = detectShell();
-  const readOnly = argv.readonly;
-  const startPath = resolveStartPath(argv.path);
-
-  // Print startup banner
-  printBanner();
-
-  // Interactive prompts — always ask unless flags are passed or non-interactive
-  const expiryMs = await getExpiryInteractive();
-  const rejoinMs = await getRejoinInteractive();
-  console.log('');
-
-  logger.info(`Shell:          ${shell}`);
-  logger.info(`Relays:         ${RELAY_URLS.join(', ')}`);
-  logger.info(`Path:           ${startPath}`);
-  logger.info(`Expiry:         ${formatDuration(expiryMs)}`);
-  logger.info(`Rejoin Window:  ${formatDuration(rejoinMs)}`);
-  if (readOnly) logger.info('Mode:           READ-ONLY');
-  if (argv.verbose) logger.info('Verbose logging enabled');
-  console.log('');
-
-  const manager = new SessionManager(shell, expiryMs, rejoinMs, readOnly, startPath);
-
-  // Create first session automatically
-  const firstCode = await manager.createSession();
-  if (!firstCode) {
-    logger.error('Failed to start. Is the relay server running?');
-    process.exit(1);
-  }
-
-  // ─── Interactive CLI menu ──────────────────────────────────────────
-  console.log('  ─────────────────────────────────────────');
-  console.log('  Commands:');
-  console.log('    [n] New session');
-  console.log('    [l] List sessions');
-  console.log('    [a <code>] Authorize verified fingerprint');
-  console.log('    [k <code>] Kill session');
-  console.log('    [q] Quit all');
-  console.log('  ─────────────────────────────────────────');
-  console.log('');
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: '  > ',
-  });
-
-  rl.prompt();
-
-  rl.on('line', async (line) => {
-    const input = line.trim();
-
-    if (input === 'n') {
-      logger.info('Creating new session...');
-      await manager.createSession();
-    } else if (input === 'l') {
-      manager.listSessions();
-    } else if (input.startsWith('a ')) {
-      const code = input.slice(2).trim();
-      await manager.authorizeSession(code);
-    } else if (input.startsWith('k ')) {
-      const code = input.slice(2).trim();
-      manager.killSession(code);
-    } else if (input === 'q') {
-      logger.info('Shutting down all sessions...');
-      manager.killAll();
-      rl.close();
-      process.exit(0);
-    } else if (input) {
-      console.log('  Unknown command. Use n, l, a <code>, k <code>, or q.');
-    }
-
-    rl.prompt();
-  });
-
-  rl.on('close', () => {
-    manager.killAll();
-    process.exit(0);
-  });
-
-  process.on('SIGINT', () => {
-    console.log('');
-    logger.info('Shutting down...');
-    manager.killAll();
-    rl.close();
-    process.exit(0);
-  });
-}
-
-// ─── Global Error Handling ───────────────────────────────────────────────────
-
-process.on('uncaughtException', (err) => {
-  logger.error(`Uncaught exception: ${err.message}`, err);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason) => {
-  const err = reason instanceof Error ? reason : new Error(String(reason));
-  logger.error(`Unhandled rejection: ${err.message}`, err);
-});
-
-// ─── Run ─────────────────────────────────────────────────────────────────────
-
-main().catch((err) => {
-  logger.error(`Fatal error: ${err.message}`, err);
-  process.exit(1);
-});

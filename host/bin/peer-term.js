@@ -47,7 +47,7 @@ process.on('unhandledRejection', (reason) => {
 
 // ─── Launch Main ─────────────────────────────────────────────────────────────
 
-import('../src/index.js').catch((err) => {
+import('../src/cli.js').catch((err) => {
   logFatalError('Failed to start PeerTerm', err);
   process.exit(1);
 });
