@@ -1688,13 +1688,6 @@
       if (uploadFilename) uploadFilename.textContent = '';
     }
 
-    /**
-     * Show or hide the file upload zone based on readonly state.
-     */
-    function updateFileUploadVisibility() {
-      if (!fileUploadZone) return;
-      fileUploadZone.style.display = isReadOnly ? 'none' : '';
-    }
 
     // ─── Upload button & file input handlers ──────────────────────────────
     uploadBtn.addEventListener('click', () => fileInput.click());

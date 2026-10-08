@@ -2,6 +2,7 @@
   "name": "peer-term",
   "version": "1.0.0",
   "description": "Share your terminal with anyone using a 6-digit code. End-to-end encrypted.",
+  "type": "module",
   "private": true,
   "workspaces": [
     "relay",

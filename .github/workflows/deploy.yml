@@ -16,8 +16,72 @@ env:
   SSH_OPTS: -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
 
 jobs:
+  # ════════════════════════════════════════════════════════════════
+  # Validate – syntax, lint, HTML, dependency install
+  # ════════════════════════════════════════════════════════════════
+  validate:
+    name: Validate Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # ── Syntax Check ───────────────────────────────────────────
+      - name: Syntax check all JS files
+        run: |
+          echo "── Checking relay/ ──"
+          node --check relay/server.js
+
+          echo "── Checking host/ ──"
+          for f in host/bin/*.js host/src/*.js; do
+            echo "  $f"
+            node --check "$f"
+          done
+
+          echo "── Checking client/ ──"
+          node --check client/app.js
+
+          echo "✓ All syntax checks passed"
+
+      # ── ESLint ─────────────────────────────────────────────────
+      - name: Install ESLint
+        run: npm install --no-save eslint @eslint/js
+
+      - name: Lint with ESLint
+        run: npx eslint relay/ host/ client/
+
+      # ── HTML Validation ────────────────────────────────────────
+      - name: Install htmlhint
+        run: npm install --no-save htmlhint
+
+      - name: Validate HTML
+        run: npx htmlhint client/index.html
+
+      # ── Dependency Install Check ───────────────────────────────
+      - name: Verify relay dependencies install
+        run: |
+          cd relay
+          npm install --omit=dev
+          echo "✓ relay/ dependencies OK"
+
+      - name: Verify host dependencies install
+        run: |
+          cd host
+          npm install --omit=dev
+          echo "✓ host/ dependencies OK"
+
+  # ════════════════════════════════════════════════════════════════
+  # Deploy – only runs after validate passes
+  # ════════════════════════════════════════════════════════════════
   deploy:
     name: Deploy PeerTerm
+    needs: validate
     runs-on: ubuntu-latest
 
     env:

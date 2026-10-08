@@ -717,7 +717,7 @@ class Session {
           // Clean up reference if this was the pending socket
           if (this._pendingReconnectWs === newWs) this._pendingReconnectWs = null;
         });
-      } catch (e) {
+      } catch {
         // Connection failed, next retry in 5s
       }
     }, 5000);

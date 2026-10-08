@@ -635,7 +635,6 @@ const server = http.createServer((req, res) => {
 // ─── Message Validation ──────────────────────────────────────────────────────
 
 const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
-const MAX_CODE_LEN    = 6;
 const MAX_TOKEN_LEN   = 64;
 const MAX_KEY_LEN     = 256;  // base64-encoded ECDH public key
 
