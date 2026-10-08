@@ -9,6 +9,9 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+env:
+  SSH_OPTS: -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+
 jobs:
   deploy:
     name: Deploy PeerTerm
@@ -19,54 +22,45 @@ jobs:
       EC2_USER: ${{ secrets.EC2_USER }}
       EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
       RELAY_DIR: /home/ubuntu/peerterm-relay
-      PM2_NAME: peerterm-relay
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # ── SSH Setup ──────────────────────────────────────────────
-      - name: Configure SSH
+      - name: Write SSH key
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2_key
           chmod 600 ~/.ssh/ec2_key
-          cat >> ~/.ssh/config <<EOF
-          Host ec2
-            HostName $EC2_HOST
-            User $EC2_USER
-            IdentityFile ~/.ssh/ec2_key
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
-          EOF
 
       # ── Deploy Static Client ──────────────────────────────────
       - name: Sync client files to Nginx root
         run: |
           rsync -avz --delete \
-            -e "ssh -F ~/.ssh/config" \
+            -e "ssh -i ~/.ssh/ec2_key $SSH_OPTS" \
             client/index.html client/app.js client/styles.css \
-            "ec2:/var/www/peerterm/"
+            "${EC2_USER}@${EC2_HOST}:/var/www/peerterm/"
 
       # ── Deploy Relay Server ───────────────────────────────────
       - name: Sync relay files
         run: |
           rsync -avz \
-            -e "ssh -F ~/.ssh/config" \
+            -e "ssh -i ~/.ssh/ec2_key $SSH_OPTS" \
             relay/server.js relay/package.json \
-            "ec2:${RELAY_DIR}/"
+            "${EC2_USER}@${EC2_HOST}:${RELAY_DIR}/"
 
       - name: Install dependencies and reload PM2
         run: |
-          ssh -F ~/.ssh/config ec2 bash -s <<'EOF'
+          ssh -i ~/.ssh/ec2_key $SSH_OPTS "${EC2_USER}@${EC2_HOST}" bash -s <<'REMOTE'
             set -euo pipefail
             cd /home/ubuntu/peerterm-relay
             npm install --omit=dev
             pm2 reload peerterm-relay 2>/dev/null || pm2 start server.js --name peerterm-relay
             pm2 save
-          EOF
+          REMOTE
 
       # ── Cleanup ───────────────────────────────────────────────
       - name: Remove SSH key
         if: always()
-        run: rm -f ~/.ssh/ec2_key ~/.ssh/config
+        run: rm -f ~/.ssh/ec2_key
