@@ -12,7 +12,6 @@
     const pasteBtn        = document.getElementById('paste-btn');
     const copyBtn         = document.getElementById('copy-btn');
     const clipToast       = document.getElementById('clipboard-toast');
-    const mobileInput     = document.getElementById('mobile-input');
     const kbdToggleBtn    = document.getElementById('kbd-toggle-btn');
     const fontDownBtn     = document.getElementById('font-down-btn');
     const fontUpBtn       = document.getElementById('font-up-btn');
@@ -802,15 +801,12 @@
         showToast('View only mode', 'info');
         pasteBtn.style.display = 'none';
         if (tabBtn) tabBtn.disabled = true;
-        mobileInput.disabled = true;
-        mobileInput.blur();
         // Hide file upload in readonly mode
         if (fileUploadZone) fileUploadZone.style.display = 'none';
       } else {
         hideViewOnlyBadge();
         pasteBtn.style.display = '';
         if (tabBtn) tabBtn.disabled = false;
-        mobileInput.disabled = false;
         // Show file upload if not readonly
         if (fileUploadZone) {
           fileUploadZone.style.display = '';
@@ -1084,12 +1080,11 @@
         return true;
       });
 
-      // ─── Mobile: tap terminal to focus hidden input ────────────────────
+      // ─── Mobile: tap terminal to focus ─────────────────────────────────────
       if (isMobile) {
-        const onTouchStart = () => { mobileInput.focus(); };
+        const onTouchStart = () => { terminal.focus(); };
         terminalEl.addEventListener('touchstart', onTouchStart);
         terminalDisposables.push(() => terminalEl.removeEventListener('touchstart', onTouchStart));
-        setupMobileInput();
       }
 
       // Focus terminal
@@ -1174,63 +1169,22 @@
       setTimeout(() => clipToast.classList.remove('visible'), 3000);
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // MOBILE KEYBOARD HANDLING
-    // ═════════════════════════════════════════════════════════════════════════
-
-    function setupMobileInput() {
-      const onMobileInput = (e) => {
-        if (!terminal || isReadOnly) return;
-        const data = e.data;
-        if (data) {
-          sendKeystroke(data);
-        }
-        mobileInput.value = '';
-      };
-      mobileInput.addEventListener('input', onMobileInput);
-      terminalDisposables.push(() => mobileInput.removeEventListener('input', onMobileInput));
-
-      const onMobileKeydown = (e) => {
-        if (!terminal || isReadOnly) return;
-        let seq = null;
-        switch (e.key) {
-          case 'Backspace': seq = '\x7f'; break;
-          case 'Enter':     seq = '\r';   break;
-          case 'ArrowUp':   seq = '\x1b[A'; break;
-          case 'ArrowDown': seq = '\x1b[B'; break;
-          case 'ArrowRight':seq = '\x1b[C'; break;
-          case 'ArrowLeft': seq = '\x1b[D'; break;
-          case 'Tab':       seq = '\t'; e.preventDefault(); break;
-        }
-        if (seq) {
-          e.preventDefault();
-          sendKeystroke(seq);
-        }
-      };
-      mobileInput.addEventListener('keydown', onMobileKeydown);
-      terminalDisposables.push(() => mobileInput.removeEventListener('keydown', onMobileKeydown));
-    }
-
-    async function sendKeystroke(data) {
-      if (!sharedKey || isReadOnly || hostWaitingForReconnect || awaitingHostAuthorization) return;
-      try {
-        const payload = await encrypt(sharedKey, data);
-        sendEncryptedToHost(payload);
-      } catch {}
-    }
-
     // Keyboard toggle button
     kbdToggleBtn.addEventListener('click', () => {
-      mobileInput.focus();
+      if (terminal) terminal.focus();
     });
 
     // Tab button (mobile only)
     if (tabBtn) {
-      tabBtn.addEventListener('click', () => {
-        if (isReadOnly) return;
+      tabBtn.addEventListener('click', async () => {
+        if (isReadOnly || !sharedKey || !terminal) return;
         tabBtn.classList.add('active');
         setTimeout(() => tabBtn.classList.remove('active'), 150);
-        sendKeystroke('\t');
+        
+        try {
+          const payload = await encrypt(sharedKey, '\t');
+          sendEncryptedToHost(payload);
+        } catch {}
       });
     }
 
