@@ -1,0 +1,68 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy PeerTerm
+    runs-on: ubuntu-latest
+
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      RELAY_DIR: /home/ubuntu/peerterm-relay
+      PM2_NAME: peerterm-relay
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── SSH Setup ──────────────────────────────────────────────
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      # ── Deploy Static Client ──────────────────────────────────
+      - name: Sync client files to Nginx root
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/ec2_key" \
+            client/index.html client/app.js client/styles.css \
+            "${EC2_USER}@${EC2_HOST}:/var/www/peerterm/"
+
+      # ── Deploy Relay Server ───────────────────────────────────
+      - name: Sync relay files
+        run: |
+          rsync -avz \
+            -e "ssh -i ~/.ssh/ec2_key" \
+            relay/server.js relay/package.json \
+            "${EC2_USER}@${EC2_HOST}:${RELAY_DIR}/"
+
+      - name: Install dependencies and reload PM2
+        run: |
+          ssh -i ~/.ssh/ec2_key "${EC2_USER}@${EC2_HOST}" bash -s <<'EOF'
+            set -euo pipefail
+            cd "$RELAY_DIR"
+            npm install --omit=dev
+            pm2 reload "$PM2_NAME" 2>/dev/null || pm2 start server.js --name "$PM2_NAME"
+            pm2 save
+          EOF
+        env:
+          RELAY_DIR: /home/ubuntu/peerterm-relay
+          PM2_NAME: peerterm-relay
+
+      # ── Cleanup ───────────────────────────────────────────────
+      - name: Remove SSH key
+        if: always()
+        run: rm -f ~/.ssh/ec2_key
