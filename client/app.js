@@ -1855,7 +1855,6 @@
       connectingOvl.classList.remove('visible');
       hideViewOnlyBadge();
       pasteBtn.style.display = '';
-      mobileInput.disabled = false;
       copyBtn.classList.remove('visible');
 
       updateStatusDot('green');
