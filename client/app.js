@@ -1183,8 +1183,6 @@
         if (!terminal || isReadOnly) return;
         const data = e.data;
         if (data) {
-          terminal.paste(data);
-          // Also send to host
           sendKeystroke(data);
         }
         mobileInput.value = '';
@@ -1206,7 +1204,6 @@
         }
         if (seq) {
           e.preventDefault();
-          terminal.paste(seq);
           sendKeystroke(seq);
         }
       };
