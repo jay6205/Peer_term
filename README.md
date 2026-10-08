@@ -130,6 +130,20 @@ fly deploy
 
 </details>
 
+<details>
+<summary><strong>AWS EC2 (via included GitHub Actions)</strong></summary>
+
+This repository includes a `deploy.yml` workflow for automated EC2 deployments.
+1. Setup an EC2 instance with Nginx and PM2 installed.
+2. In your GitHub repository settings, add the following Actions secrets:
+   - `EC2_HOST`: The IP address of your EC2 instance.
+   - `EC2_USER`: Your SSH username (e.g., `ubuntu`).
+   - `EC2_SSH_KEY`: Your private SSH key.
+3. Ensure Nginx serves the client from `/var/www/peerterm/` and the relay is located at `~/peerterm-relay`.
+4. Pushing to `main` will automatically rsync the files and reload PM2.
+
+</details>
+
 ### 2. Host the Client
 
 The client is a single `index.html` file located in the `client/` directory.
