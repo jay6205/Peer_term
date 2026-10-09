@@ -536,6 +536,12 @@ const MIME_TYPES = {
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
 
 const server = http.createServer((req, res) => {
+  // Supply-chain and browser security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://www.googletagmanager.com https://www.google-analytics.com; connect-src *;");
+
   // Health check endpoint
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
