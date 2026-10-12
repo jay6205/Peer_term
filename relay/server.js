@@ -578,21 +578,36 @@ const server = http.createServer((req, res) => {
   }
 
   // Resolve the file to serve from the client directory
-  // Extract pathname to ignore query strings (e.g. ?code=123456)
-  const pathname = req.url.split('?')[0];
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad Request');
+    return;
+  }
+
+  // Reject null-byte poisoning
+  if (pathname.includes('\0')) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad Request');
+    return;
+  }
 
   let filePath;
   if (pathname === '/' || pathname === '/index.html') {
     filePath = path.join(CLIENT_DIR, 'index.html');
   } else {
-    // Sanitize: resolve and ensure the path stays within CLIENT_DIR
-    const safePath = path.normalize(decodeURIComponent(pathname));
-    filePath = path.join(CLIENT_DIR, safePath);
-    if (!filePath.startsWith(CLIENT_DIR)) {
-      res.writeHead(403);
+    // Sanitize: resolve and ensure the path stays strictly within CLIENT_DIR
+    const relativePath = pathname.replace(/^[/\\]+/, '');
+    const resolvedPath = path.resolve(CLIENT_DIR, relativePath);
+    const rel = path.relative(CLIENT_DIR, resolvedPath);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
       res.end('Forbidden');
       return;
     }
+    filePath = resolvedPath;
   }
 
   const ext = path.extname(filePath).toLowerCase();
