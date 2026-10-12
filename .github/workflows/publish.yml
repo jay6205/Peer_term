@@ -19,7 +19,7 @@ jobs:
 
     permissions:
       contents: read
-      id-token: write # Required for generating Sigstore SLSA provenance (OIDC badge on npm)
+      id-token: write # Required for OIDC Trusted Publishing & Sigstore provenance
 
     defaults:
       run:
@@ -46,7 +46,6 @@ jobs:
           done
           echo "✓ Syntax check passed"
 
+      # Trusted Publishing uses GitHub OIDC directly (no secret NPM_TOKEN needed)
       - name: Publish to npm with Provenance
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
