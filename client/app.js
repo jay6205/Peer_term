@@ -267,8 +267,20 @@
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // UI LOGIC
+    // ANALYTICS & UI LOGIC
     // ═════════════════════════════════════════════════════════════════════════
+
+    function trackEvent(eventName, params = {}) {
+      try {
+        if (typeof gtag === 'function') {
+          gtag('event', eventName, params);
+        }
+      } catch (err) {
+        console.warn('[Analytics] Failed to send event:', err);
+      }
+    }
+
+    let connectionSource = 'manual';
 
     // Only allow digits in the code input
     codeInput.addEventListener('input', () => {
@@ -288,6 +300,7 @@
         showError('Please enter a 6-digit code');
         return;
       }
+      connectionSource = 'manual';
       startConnection(code);
     });
 
@@ -305,6 +318,7 @@
 
         // Pre-fill and auto-connect
         codeInput.value = prefilledCode;
+        connectionSource = 'url';
         // Small delay to let the page finish rendering before connecting
         setTimeout(() => startConnection(prefilledCode), 100);
       }
@@ -379,13 +393,10 @@
       setLoading(true);
       updateConnIndicator('connecting');
 
-      // When someone joins a session
-      if (typeof gtag === 'function') {
-        gtag('event', 'session_joined', {
-          event_category: 'PeerTerm',
-          event_label: 'client'
-        });
-      }
+      // Track connection attempt
+      trackEvent('session_join_attempt', {
+        source: connectionSource
+      });
 
       connectToRelay(code, 0);
     }
@@ -399,6 +410,10 @@
       if (urlIndex >= RELAY_URLS.length) {
         setLoading(false);
         showError('All relay servers failed to connect');
+        trackEvent('session_join_failed', {
+          reason: 'All relay servers failed to connect',
+          is_reconnecting: isReconnecting
+        });
         return;
       }
 
@@ -452,6 +467,10 @@
         switch (msg.type) {
           // ─── Error from relay ─────────────────────────────────────────
           case 'error':
+            trackEvent('session_join_failed', {
+              reason: msg.msg || 'Connection failed',
+              is_reconnecting: isReconnecting
+            });
             if (isReconnecting) {
               if (msg.msg === 'Session already in use' || msg.msg === 'Host is reconnecting. Try again shortly.') {
                 // Transient reconnect state; retry on the next reconnect tick.
@@ -939,12 +958,11 @@
       // Start session duration timer
       startSessionTimer();
 
-      // When a connection is established
-      if (typeof gtag === 'function') {
-        gtag('event', 'connection_established', {
-          event_category: 'PeerTerm'
-        });
-      }
+      // When a connection is established and terminal is ready
+      trackEvent('session_connected', {
+        mode: (isReadOnly || readOnlyHint) ? 'view_only' : 'interactive',
+        transport: 'relay'
+      });
 
       // Read-only mode setup
       if (isReadOnly || readOnlyHint) {
@@ -1404,6 +1422,10 @@
             updateConnIndicator('direct');
             // File upload zone visibility is handled by setReadonly
             if (!isReadOnly && fileUploadZone) fileUploadZone.style.display = '';
+
+            trackEvent('webrtc_connected', {
+              role: 'client'
+            });
           };
 
           dataChannel.onclose = () => {
@@ -1809,6 +1831,12 @@
 
     function resetToConnectScreen() {
       sessionEnded = true;
+      if (sessionStartTime) {
+        const durationSeconds = Math.round((Date.now() - sessionStartTime) / 1000);
+        trackEvent('session_disconnected', {
+          duration_seconds: durationSeconds
+        });
+      }
       stopHeartbeat();
       stopReconnecting();
       stopSessionTimer();
@@ -1868,12 +1896,9 @@
       codeInput.focus();
     }
 
-    // When a session is created
+    // When a session is created (for external callers / tests)
     window.trackSessionCreated = function() {
-      if (typeof gtag === 'function') {
-        gtag('event', 'session_created', {
-          event_category: 'PeerTerm',
-          event_label: 'host'
-        });
-      }
+      trackEvent('session_created', {
+        role: 'host'
+      });
     };

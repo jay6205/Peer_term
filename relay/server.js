@@ -64,6 +64,28 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// Optional GA4 Measurement Protocol tracking (enabled if GA_API_SECRET is set in environment)
+const GA_MEASUREMENT_ID = process.env.GA_MEASUREMENT_ID || 'G-5GV9ENEL65';
+const GA_API_SECRET = process.env.GA_API_SECRET || '';
+
+function trackGaEvent(eventName, params = {}, clientId = 'relay-server') {
+  if (!GA_API_SECRET) return;
+  try {
+    const url = `https://www.google-analytics.com/mp/collect?measurement_id=${GA_MEASUREMENT_ID}&api_secret=${GA_API_SECRET}`;
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: clientId,
+        events: [{
+          name: eventName,
+          params
+        }]
+      })
+    }).catch(() => {});
+  } catch {}
+}
+
 // Helper - structured log with timestamp
 function log(event, data = {}) {
   console.log(JSON.stringify({
@@ -71,6 +93,12 @@ function log(event, data = {}) {
     event,
     ...data
   }));
+
+  if (event === 'session_created') {
+    trackGaEvent('session_created', { role: 'host' });
+  } else if (event === 'session_ended') {
+    trackGaEvent('session_ended', { duration_ms: data.duration_ms, reason: data.reason });
+  }
 }
 
 // Map<code, session>
@@ -540,7 +568,7 @@ const server = http.createServer((req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://www.googletagmanager.com https://www.google-analytics.com; connect-src *;");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; connect-src *;");
 
   // Health check endpoint
   if (req.url === '/health') {
