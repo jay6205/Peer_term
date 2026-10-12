@@ -69,10 +69,10 @@ const GA_MEASUREMENT_ID = process.env.GA_MEASUREMENT_ID || 'G-5GV9ENEL65';
 const GA_API_SECRET = process.env.GA_API_SECRET || '';
 
 function trackGaEvent(eventName, params = {}, clientId = 'relay-server') {
-  if (!GA_API_SECRET) return;
+  if (!GA_API_SECRET || typeof globalThis.fetch !== 'function') return;
   try {
     const url = `https://www.google-analytics.com/mp/collect?measurement_id=${GA_MEASUREMENT_ID}&api_secret=${GA_API_SECRET}`;
-    fetch(url, {
+    globalThis.fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

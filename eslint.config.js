@@ -20,6 +20,7 @@ export default [
         __filename: "readonly",
         TextEncoder: "readonly",
         TextDecoder: "readonly",
+        fetch: "readonly",
       },
     },
     rules: {
