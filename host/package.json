@@ -5,12 +5,12 @@
   "description": "Share your terminal instantly using a 6-digit code or QR code. Encrypted. No config.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jay6205/Peer_Term",
+    "url": "https://github.com/jay6205/Peer_term.git",
     "directory": "host"
   },
-  "homepage": "https://github.com/jay6205/Peer_Term#readme",
+  "homepage": "https://github.com/jay6205/Peer_term#readme",
   "bugs": {
-    "url": "https://github.com/jay6205/Peer_Term/issues"
+    "url": "https://github.com/jay6205/Peer_term/issues"
   },
   "keywords": [
     "terminal",
