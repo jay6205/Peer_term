@@ -1,0 +1,52 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish peer-term to npm with Provenance
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write # Required for generating Sigstore SLSA provenance (OIDC badge on npm)
+
+    defaults:
+      run:
+        working-directory: host
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: Install dependencies
+        run: npm install --omit=dev
+
+      - name: Syntax check
+        run: |
+          for f in bin/*.js src/*.js; do
+            echo "Checking $f"
+            node --check "$f"
+          done
+          echo "✓ Syntax check passed"
+
+      - name: Publish to npm with Provenance
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
