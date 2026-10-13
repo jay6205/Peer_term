@@ -12,7 +12,7 @@ npx peer-term
 
 This will start a terminal sharing session and give you a 6-digit code.
 
-Share this code with your peer. They can view your terminal by going to https://relay.dhananjaybalekar.in/ and entering the code.
+Share this code with your peer. They can view your terminal by going to https://peerterm.dhananjaybalekar.in/ and entering the code.
 
 ## Global Installation
 
@@ -51,6 +51,8 @@ peer-term --verbose                    # enable debug logging
 - **Custom Start Path**: Set the starting directory with `--path`.
 - **Resilient Connections**: Both host and client get a 2-minute rejoin window if their IP changes or connection drops. PTY state is fully preserved — no session restart needed.
 - **Multi-Session**: Manage multiple simultaneous sessions with the interactive CLI menu.
+- **QR Code Support**: Displays a terminal QR code for instant connection from mobile or tablet devices without manually entering the code.
+- **Interactive Controls**: Manage sessions directly from the CLI (`n` for new session, `l` to list, `k` to kill, `a` to authorize fingerprint, `q` to quit).
 
 ## How It Works
 

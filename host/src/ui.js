@@ -46,11 +46,11 @@ export function printBanner() {
  * @param {string} opts.mode     - "Read-Write" or "Read-Only"
  * @param {string} opts.shell    - Shell path (e.g. "/bin/zsh")
  * @param {string} [opts.startPath] - Starting directory for the session
- * @param {string} [opts.shareUrl] - URL to share (e.g. "https://peerterm.dev")
+ * @param {string} [opts.shareUrl] - URL to share (e.g. "https://peerterm.dhananjaybalekar.in")
  */
 export async function printSessionBox({ code, expiry, rejoinWindow, mode, shell, startPath, shareUrl }) {
   const spacedCode = code.split('').join(' ');
-  const url = shareUrl || 'https://peerterm.dev';
+  const url = shareUrl || 'https://peerterm.dhananjaybalekar.in';
   const joinUrl = `${url}?code=${code}`;
 
   // Truncate long shell paths to keep box readable

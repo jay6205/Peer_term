@@ -36,7 +36,7 @@ That's it! You will be given a 6-digit session code.
 
 **Connecting as a Viewer:**
 Share the code with your peer. They simply need to visit your client URL and enter the code:
-* **Default Client:** [relay.dhananjaybalekar.in](https://relay.dhananjaybalekar.in/)
+* **Default Client:** [peerterm.dhananjaybalekar.in](https://peerterm.dhananjaybalekar.in/)
 * **Self-hosted Relay:** `http://localhost:8080`
 
 By default, the connection is instant. If you started the session with `--secure`, both sides will show a short security fingerprint. Compare it over a trusted channel, and authorize terminal access in the host CLI with `a <code>`.

@@ -338,6 +338,12 @@ class Session {
       case 'code': {
         this.code = msg.code;
         this.hostToken = msg.hostToken || null;
+        const shareUrl = process.env.PEERTERM_CLIENT_URL || (
+          url.includes('relay.dhananjaybalekar.in')
+            ? 'https://peerterm.dhananjaybalekar.in'
+            : url.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
+        );
+
         await printSessionBox({
           code: this.code,
           expiry: formatDuration(this.expiryMs),
@@ -345,7 +351,7 @@ class Session {
           mode: (this.readOnly ? 'Read-Only' : 'Read-Write') + (this.secureMode ? ' (Secure)' : ''),
           shell: this.shell,
           startPath: this.startPath,
-          shareUrl: url.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
+          shareUrl
         });
         if (resolve) resolve(this.code);
         break;

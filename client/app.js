@@ -137,7 +137,7 @@
       
       // If the client is served directly from a relay server, use its origin automatically.
       // Skip self-detection only for known static/CDN hosts that aren't relay servers.
-      const staticHosts = ['peerterm.dev', 'www.peerterm.dev'];
+      const staticHosts = ['peerterm.dhananjaybalekar.in'];
       if (!staticHosts.includes(location.hostname)) {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const selfRelay = `${proto}//${location.host}`;
