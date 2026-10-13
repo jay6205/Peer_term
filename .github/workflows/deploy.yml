@@ -102,12 +102,16 @@ jobs:
           chmod 600 ~/.ssh/ec2_key
 
       # ── Deploy Static Client ──────────────────────────────────
-      - name: Sync client files to Nginx root
+      - name: Sync client files to Nginx root and relay directory
         run: |
           rsync -avz --delete \
             -e "ssh -i ~/.ssh/ec2_key $SSH_OPTS" \
             client/ \
             "${EC2_USER}@${EC2_HOST}:/var/www/peerterm/"
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/ec2_key $SSH_OPTS" \
+            client/ \
+            "${EC2_USER}@${EC2_HOST}:/home/ubuntu/client/"
 
       # ── Deploy Relay Server ───────────────────────────────────
       - name: Sync relay files

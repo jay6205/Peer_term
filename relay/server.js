@@ -561,7 +561,11 @@ const MIME_TYPES = {
   '.ico':  'image/x-icon',
 };
 
-const CLIENT_DIR = path.join(__dirname, '..', 'client');
+const CLIENT_DIR = process.env.CLIENT_DIR || (
+  fs.existsSync('/var/www/peerterm/index.html')
+    ? '/var/www/peerterm'
+    : path.join(__dirname, '..', 'client')
+);
 
 const server = http.createServer((req, res) => {
   // Supply-chain and browser security headers
