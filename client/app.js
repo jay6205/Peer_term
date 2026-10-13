@@ -167,20 +167,45 @@
     }
 
     /**
+     * Safely convert a Uint8Array or byte buffer to a base64 string
+     * in chunks (8KB) to prevent "Maximum call stack size exceeded" errors
+     * on large payloads (e.g. large pastes, terminal outputs, file transfers).
+     */
+    function bytesToBase64(bytes) {
+      const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      const CHUNK_SIZE = 8192;
+      let binary = '';
+      for (let i = 0; i < u8.length; i += CHUNK_SIZE) {
+        binary += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK_SIZE));
+      }
+      return btoa(binary);
+    }
+
+    /**
+     * Safely convert a base64 string to a Uint8Array.
+     */
+    function base64ToBytes(base64) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    /**
      * Export a public key to base64 (raw format).
      */
     async function exportPublicKey(publicKey) {
       const raw = await crypto.subtle.exportKey('raw', publicKey);
-      return btoa(String.fromCharCode(...new Uint8Array(raw)));
+      return bytesToBase64(raw);
     }
 
     /**
      * Import a peer's public key from base64.
      */
     async function importPublicKey(base64) {
-      const binary = atob(base64);
-      const raw = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) raw[i] = binary.charCodeAt(i);
+      const raw = base64ToBytes(base64);
       return await crypto.subtle.importKey(
         'raw',
         raw,
@@ -243,7 +268,7 @@
       const combined = new Uint8Array(iv.length + ciphertext.byteLength);
       combined.set(iv, 0);
       combined.set(new Uint8Array(ciphertext), iv.length);
-      return btoa(String.fromCharCode(...combined));
+      return bytesToBase64(combined);
     }
 
     /**
@@ -251,10 +276,7 @@
      * Splits first 12 bytes as IV, rest as ciphertext.
      */
     async function decrypt(key, base64data) {
-      const binary = atob(base64data);
-      const combined = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) combined[i] = binary.charCodeAt(i);
-
+      const combined = base64ToBytes(base64data);
       const iv = combined.slice(0, 12);
       const ciphertext = combined.slice(12);
 
@@ -1619,8 +1641,8 @@
             break;
           }
 
-          // Convert chunk to base64
-          const base64 = btoa(String.fromCharCode(...chunk));
+          // Convert chunk to base64 safely
+          const base64 = bytesToBase64(chunk);
 
           await sendFileMessage({ type: 'file-chunk', id, index: i, data: base64 });
 
