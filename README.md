@@ -50,26 +50,38 @@ By default, the connection is instant. If you started the session with `--secure
 npm install -g peer-term
 ```
 
-### CLI Options
+### CLI Highlights
 
-```text
-Usage: peer-term [options]
+| Flag | Description | Default |
+| :--- | :--- | :--- |
+| `--expiry <time>` | Session expiry duration (e.g. `5m`, `30s`, `1h`) | `5m` |
+| `--rejoin <time>` | Reconnection window if connection drops (e.g. `2m`, `10m`) | `2m` |
+| `--readonly` | Disable client keystrokes (view-only terminal mode) | Off |
+| `--secure` | Enable fingerprint verification for MITM protection | Off |
+| `--path <dir>` | Starting directory for the terminal session | `~` (Home) |
+| `--relay <url>` | Custom relay server WebSocket URL(s) | `wss://relay.dhananjaybalekar.in` |
+| `-V, --verbose` | Enable verbose debug logging | Off |
+| `-h, --help` | Display usage information and exit | — |
+| `-v, --version` | Output version number and exit | — |
 
-Options:
-  --expiry <time>     Session expiry time (e.g. 5m, 30s, 1h)  [default: 5m]
-  --readonly          Share in view-only mode
-  --secure            Enable fingerprint verification for MITM protection
-  --path <dir>        Starting directory for the terminal session [default: home]
-  --relay <url>       Custom relay server URL
-  --verbose           Enable debug logging
-  --help              Show this help message
-  --version           Print version number
-```
+### Interactive Session Controls
 
-**Examples:**
+While PeerTerm is active, you can manage sessions in real time from the interactive prompt:
+
+| Command | Description |
+| :--- | :--- |
+| `n` | Create a new simultaneous terminal session |
+| `l` | List all active sessions and connection status |
+| `a <code>` | Authorize verified fingerprint (when `--secure` is enabled) |
+| `k <code>` | Kill / terminate a specific session by code |
+| `q` | Quit all active sessions and shut down |
+
+### Examples
+
 ```bash
 peer-term                        # Start session with default settings
 peer-term --expiry 10m           # Custom expiry window
+peer-term --rejoin 5m            # Custom reconnection window
 peer-term --path ~/projects      # Open terminal at a specific path
 peer-term --readonly             # View-only session
 peer-term --secure               # Require fingerprint verification

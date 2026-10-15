@@ -37,9 +37,37 @@ peer-term --path .                     # starts in current directory
 peer-term --readonly                   # view-only session
 peer-term --secure                     # require fingerprint verification
 peer-term --expiry 10m                 # custom expiry time
+peer-term --rejoin 5m                  # custom reconnection window
 peer-term --relay wss://custom         # use a custom relay server
 peer-term --verbose                    # enable debug logging
 ```
+
+### CLI Highlights
+
+| Flag | Description | Default |
+| :--- | :--- | :--- |
+| `--expiry <time>` | Session expiry duration (e.g. `5m`, `30s`, `1h`) | `5m` |
+| `--rejoin <time>` | Reconnection window if connection drops (e.g. `2m`, `10m`) | `2m` |
+| `--readonly` | Disable client keystrokes (view-only terminal mode) | Off |
+| `--secure` | Enable fingerprint verification for MITM protection | Off |
+| `--path <dir>` | Starting directory for the terminal session | `~` (Home) |
+| `--relay <url>` | Custom relay server WebSocket URL(s) | `wss://relay.dhananjaybalekar.in` |
+| `-V, --verbose` | Enable verbose debug logging | Off |
+| `-h, --help` | Display usage information and exit | — |
+| `-v, --version` | Output version number and exit | — |
+
+### Interactive Controls
+
+While running, you can manage sessions directly from the host CLI:
+
+| Command | Description |
+| :--- | :--- |
+| `n` | Create a new session |
+| `l` | List all active sessions |
+| `a <code>` | Authorize verified fingerprint (in `--secure` mode) |
+| `k <code>` | Kill a specific session |
+| `q` | Quit all sessions and exit |
+
 
 ## Features
 
