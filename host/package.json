@@ -1,6 +1,6 @@
 {
   "name": "peer-term",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "license": "MIT",
   "description": "Share your terminal instantly using a 6-digit code or QR code. Encrypted. No config.",
   "repository": {

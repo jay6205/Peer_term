@@ -18,7 +18,7 @@
 * **End-to-End Encrypted** – Every keystroke and terminal output byte is encrypted locally using **AES-256-GCM**. Keys are exchanged via **ECDH P-256**. For sensitive sessions, use `--secure` to require a fingerprint verification before terminal access starts.
 * **Works Everywhere** – The host runs as a Node.js CLI. The client is a lightweight, single-page HTML application that works on any modern browser.
 * **Local P2P (Zero Latency)** – When the host and client are on the same local network, PeerTerm establishes a direct **WebRTC DataChannel**, bypassing the relay server entirely for zero-latency, private connections.
-* **Read-Only Mode** – Perfect for demos, pair debugging, or interviews. Use `--readonly` so viewers can watch your terminal without the ability to execute commands.
+* **Live Permission Toggling** – Dynamically switch any active session between **Read-Only** and **Interactive** modes on the fly (`r <code>`) without restarting the PTY or dropping the connection.
 * **File Uploads** – Clients can securely drag-and-drop files (up to 100MB) to upload them directly to the host's `~/peerterm-uploads/` directory. All transfers are end-to-end encrypted and work over both WebRTC and relay connections.
 * **Resilient Connections** – Both host and client get a 2-minute rejoin window if their IP changes or connection drops mid-session. The PTY state is fully preserved — no session restart needed.
 
@@ -71,7 +71,8 @@ While PeerTerm is active, you can manage sessions in real time from the interact
 | Command | Description |
 | :--- | :--- |
 | `n` | Create a new simultaneous terminal session |
-| `l` | List all active sessions and connection status |
+| `l` | List all active sessions and connection status (`[READ-ONLY]` vs `[INTERACTIVE]`) |
+| `r <code>` | Toggle read-only / interactive mode for an active session (alias: `rt <code>`) |
 | `a <code>` | Authorize verified fingerprint (when `--secure` is enabled) |
 | `k <code>` | Kill / terminate a specific session by code |
 | `q` | Quit all active sessions and shut down |
