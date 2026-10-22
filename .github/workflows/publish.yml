@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   push:
+    branches:
+      - main
+    paths:
+      - 'host/package.json'
+      - 'package-lock.json'
     tags:
       - 'v*'
   workflow_dispatch:
