@@ -658,6 +658,14 @@
                 }
                 break;
               }
+              // Check for session configuration envelope from host
+              if (msg.meta === 'session-config') {
+                const configData = JSON.parse(await decrypt(sharedKey, msg.payload));
+                if (configData && configData.type === 'session-config') {
+                  applySessionConfig(configData);
+                }
+                break;
+              }
               const plaintext = await decrypt(sharedKey, msg.payload);
               handleDecryptedHostMessage(plaintext);
             } catch (err) {
@@ -908,17 +916,6 @@
     }
 
     function handleDecryptedHostMessage(plaintext) {
-      try {
-        const parsed = JSON.parse(plaintext);
-        if (
-          parsed &&
-          parsed.type === 'session-config' &&
-          typeof parsed.readonly === 'boolean'
-        ) {
-          applySessionConfig(parsed);
-          return;
-        }
-      } catch {}
 
       // Handle file upload ack/error responses from host
       try {
@@ -1497,6 +1494,15 @@
                 const resizeData = JSON.parse(await decrypt(sharedKey, parsed.payload));
                 if (resizeData.type === 'resize' && resizeData.cols && resizeData.rows) {
                   terminal.resize(resizeData.cols, resizeData.rows);
+                }
+                return;
+              }
+
+              // Check for session configuration envelope from host
+              if (parsed && parsed._meta === 'session-config') {
+                const configData = JSON.parse(await decrypt(sharedKey, parsed.payload));
+                if (configData && configData.type === 'session-config') {
+                  applySessionConfig(configData);
                 }
                 return;
               }

@@ -105,7 +105,7 @@ export class Session {
     const modeStr = this.readonly ? 'READ-ONLY' : 'INTERACTIVE (write enabled)';
     const codeLabel = this.code ? `Session ${this.code}` : 'Session';
     this.log(`${codeLabel} is now ${modeStr}`);
-    if (this.sharedKey) {
+    if (this.sharedKey && this.fingerprintAuthorized) {
       await this._sendSessionConfig();
     }
     return this.readonly;
@@ -263,7 +263,10 @@ export class Session {
     });
     try {
       const payload = await encrypt(this.sharedKey, config);
-      this._sendEncryptedToClient(payload);
+      this._sendEncryptedToClient(payload, {
+        directPayload: JSON.stringify({ _meta: 'session-config', payload }),
+        meta: 'session-config',
+      });
     } catch (err) {
       this.log(`Failed to send session config: ${err.message}`);
     }
