@@ -833,13 +833,15 @@
       readonlyBadge.style.display = 'none';
     }
 
-    function setReadonly(readonly) {
+    function setReadonly(readonly, suppressToast = false) {
       isReadOnly = readonly === true;
       readOnlyHint = false;
 
       if (isReadOnly) {
         showViewOnlyBadge();
-        showToast('View only mode', 'info');
+        if (!suppressToast) {
+          showToast('View only mode', 'info');
+        }
         pasteBtn.style.display = 'none';
         if (tabBtn) tabBtn.disabled = true;
         // Hide file upload in readonly mode
@@ -862,8 +864,24 @@
 
     function applySessionConfig(config) {
       // Trusted: came from the host through the encrypted tunnel.
+      const isDynamicChange = sessionConfigApplied;
+      const prevReadonly = isReadOnly;
+
       sessionConfigApplied = true;
-      setReadonly(config.readonly);
+
+      if (isDynamicChange) {
+        if (typeof config.readonly === 'boolean' && config.readonly !== prevReadonly) {
+          setReadonly(config.readonly, true);
+          if (config.readonly) {
+            showToast('Host switched session to Read-Only mode', 'info');
+          } else {
+            showToast('Host granted write access (Interactive mode)', 'success');
+          }
+        }
+      } else {
+        setReadonly(config.readonly);
+      }
+
       if (awaitingHostAuthorization) {
         awaitingHostAuthorization = false;
         showToast('Host authorized encrypted tunnel', 'success');
@@ -890,19 +908,17 @@
     }
 
     function handleDecryptedHostMessage(plaintext) {
-      if (!sessionConfigApplied) {
-        try {
-          const parsed = JSON.parse(plaintext);
-          if (
-            parsed &&
-            parsed.type === 'session-config' &&
-            typeof parsed.readonly === 'boolean'
-          ) {
-            applySessionConfig(parsed);
-            return;
-          }
-        } catch {}
-      }
+      try {
+        const parsed = JSON.parse(plaintext);
+        if (
+          parsed &&
+          parsed.type === 'session-config' &&
+          typeof parsed.readonly === 'boolean'
+        ) {
+          applySessionConfig(parsed);
+          return;
+        }
+      } catch {}
 
       // Handle file upload ack/error responses from host
       try {

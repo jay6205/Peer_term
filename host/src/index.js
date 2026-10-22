@@ -46,7 +46,7 @@ import { ViewerServer } from './viewer.js';
 
 // ─── Session Class ───────────────────────────────────────────────────────────
 
-class Session {
+export class Session {
   constructor(shell, expiryMs, rejoinMs, readOnly, startPath, onDestroy) {
     this.shell = shell;
     this.expiryMs = expiryMs;
@@ -90,6 +90,25 @@ class Session {
     // Session duration tracking
     this.sessionStartedAt = null;        // Timestamp: when the terminal session became active
     this.sessionDurationInterval = null; // Interval: periodic CLI status log
+  }
+
+  get readonly() {
+    return this.readOnly;
+  }
+
+  set readonly(val) {
+    this.readOnly = Boolean(val);
+  }
+
+  async toggleReadonly() {
+    this.readonly = !this.readonly;
+    const modeStr = this.readonly ? 'READ-ONLY' : 'INTERACTIVE (write enabled)';
+    const codeLabel = this.code ? `Session ${this.code}` : 'Session';
+    this.log(`${codeLabel} is now ${modeStr}`);
+    if (this.sharedKey) {
+      await this._sendSessionConfig();
+    }
+    return this.readonly;
   }
 
   /**
@@ -233,18 +252,18 @@ class Session {
   }
 
   async _sendSessionConfig() {
-    if (!this.sharedKey || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.sharedKey) return;
 
     const config = JSON.stringify({
       type: 'session-config',
-      readonly: this.readOnly,
+      readonly: this.readonly,
       version: version,
       shell: this.shell,
       startPath: this.startPath,
     });
     try {
       const payload = await encrypt(this.sharedKey, config);
-      this.ws.send(JSON.stringify({ type: 'data', payload }));
+      this._sendEncryptedToClient(payload);
     } catch (err) {
       this.log(`Failed to send session config: ${err.message}`);
     }
@@ -941,8 +960,8 @@ class Session {
     } else {
       status = `waiting for client (expires in ${formatDuration(remaining)})`;
     }
-    if (this.readOnly) status += '  (readonly)';
-    return status;
+    const mode = this.readonly ? '[READ-ONLY]' : '[INTERACTIVE]';
+    return `${status} ${mode}`;
   }
 
   // ─── Session Duration Logging ────────────────────────────────────────
@@ -1032,6 +1051,19 @@ export class SessionManager {
       return;
     }
     await session.authorizeFingerprint();
+  }
+
+  async toggleReadonlySession(code) {
+    const session = this.sessions.get(code);
+    if (!session) {
+      logger.warn(`Session ${code} not found.`);
+      return;
+    }
+    await session.toggleReadonly();
+  }
+
+  async toggleReadonly(code) {
+    return this.toggleReadonlySession(code);
   }
 
   killAll() {

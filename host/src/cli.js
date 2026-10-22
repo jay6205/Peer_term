@@ -4,13 +4,13 @@
  * Top-level orchestration:
  *   1. Detects shell, resolves start path, runs interactive prompts
  *   2. Creates a SessionManager and starts the first session
- *   3. Provides a readline-based menu (n/l/k/a/q) for managing sessions
+ *   3. Provides a readline-based menu (n/l/r/k/a/q) for managing sessions
  *   4. Handles SIGINT and global error handlers
  */
 
 import readline from 'readline';
 import logger from './logger.js';
-import { printBanner } from './ui.js';
+import { printBanner, printCommandsMenu } from './ui.js';
 import { argv, RELAY_URLS } from './config.js';
 import { formatDuration, detectShell, resolveStartPath } from './utils.js';
 import { getExpiryInteractive, getRejoinInteractive } from './prompts.js';
@@ -50,14 +50,7 @@ async function main() {
   }
 
   // ─── Interactive CLI menu ──────────────────────────────────────────
-  console.log('  ─────────────────────────────────────────');
-  console.log('  Commands:');
-  console.log('    [n] New session');
-  console.log('    [l] List sessions');
-  console.log('    [a <code>] Authorize verified fingerprint');
-  console.log('    [k <code>] Kill session');
-  console.log('    [q] Quit all');
-  console.log('  ─────────────────────────────────────────');
+  printCommandsMenu();
   console.log('');
 
   const rl = readline.createInterface({
@@ -76,6 +69,13 @@ async function main() {
       await manager.createSession();
     } else if (input === 'l') {
       manager.listSessions();
+    } else if (input.startsWith('r ') || input.startsWith('rt ') || input === 'r' || input === 'rt') {
+      const code = input.startsWith('rt ')
+        ? input.slice(3).trim()
+        : input.startsWith('r ')
+        ? input.slice(2).trim()
+        : '';
+      await manager.toggleReadonlySession(code);
     } else if (input.startsWith('a ')) {
       const code = input.slice(2).trim();
       await manager.authorizeSession(code);
@@ -88,7 +88,7 @@ async function main() {
       rl.close();
       process.exit(0);
     } else if (input) {
-      console.log('  Unknown command. Use n, l, a <code>, k <code>, or q.');
+      console.log('  Unknown command. Use n, l, r <code>, a <code>, k <code>, or q.');
     }
 
     rl.prompt();

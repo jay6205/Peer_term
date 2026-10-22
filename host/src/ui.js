@@ -164,3 +164,21 @@ export function printVersion() {
     console.log('peer-term (version unknown)');
   }
 }
+
+// ─── Commands Menu ───────────────────────────────────────────────────────────
+
+/**
+ * Print the interactive CLI commands menu.
+ */
+export function printCommandsMenu() {
+  console.log('  ─────────────────────────────────────────');
+  console.log('  Commands:');
+  console.log('    [n] New session');
+  console.log('    [l] List sessions');
+  console.log('    [r <code>] Toggle read-only mode');
+  console.log('    [a <code>] Authorize verified fingerprint');
+  console.log('    [k <code>] Kill session');
+  console.log('    [q] Quit all');
+  console.log('  ─────────────────────────────────────────');
+}
+
