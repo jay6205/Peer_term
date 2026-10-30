@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Prevent crawlers from indexing ephemeral session code URLs
+Disallow: /*?code=*
+
+Sitemap: https://peerterm.dhananjaybalekar.in/sitemap.xml
+
