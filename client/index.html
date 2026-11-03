@@ -28,6 +28,48 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="styles.css">
+
+  <!-- Schema.org FAQPage Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Can the relay server see my terminal output or passwords?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. PeerTerm uses client-side End-to-End Encryption (E2EE) with AES-256-GCM and ECDH P-256 key exchange. Keys are negotiated directly between your browser and the host terminal via the Web Crypto API. The relay server acts strictly as a blind packet forwarder—it only ever sees opaque binary blobs and never possesses the decryption keys. Keystrokes, terminal output, and passwords never leave your machine unencrypted."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I run PeerTerm behind a corporate firewall?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "PeerTerm first attempts a direct peer-to-peer WebRTC DataChannel connection using STUN for automatic NAT traversal. If corporate firewalls, symmetric NAT, or VPNs prevent direct P2P connections, PeerTerm automatically falls back to an end-to-end encrypted WebSocket connection over standard HTTPS/WSS (port 443), which works seamlessly through corporate proxies and firewalls without requiring port forwarding or admin configuration."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does PeerTerm require root or sudo privileges?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. PeerTerm operates entirely in user space. Neither the host command (npx peer-term) nor the web viewer requires root, administrator, or sudo privileges. The host only spawns a pseudo-terminal (PTY) inside your current user shell with your existing user permissions."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How does PeerTerm compare to tmate?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "While tmate is an established tmux-based tool, PeerTerm is designed for frictionless web-first collaboration: 1) Zero Viewer Setup: Viewers connect directly in any modern browser without needing an SSH client or SSH keys. 2) Local P2P Latency: PeerTerm leverages WebRTC DataChannels for direct, zero-latency connections on local networks. 3) Native End-to-End Encryption: Cryptographic keys never leave client devices (AES-256-GCM). 4) Modern Web Capabilities: Includes encrypted drag-and-drop file transfers (up to 100MB) and dynamic live read-only toggling on the fly."
+        }
+      }
+    ]
+  }
+  </script>
 </head>
 
 <body>
@@ -74,6 +116,77 @@
     </div>
 
     <p class="connect-footer">Open source · No installation required</p>
+
+    <!-- ═══ FAQ Accordion ═══════════════════════════════════════════════════ -->
+    <section class="faq-section" id="faq" aria-labelledby="faq-title">
+      <div class="faq-header">
+        <h2 id="faq-title" class="faq-title">Frequently Asked Questions</h2>
+      </div>
+
+      <div class="faq-list">
+        <details class="faq-item" name="faq">
+          <summary class="faq-question">
+            <span>Can the relay server see my terminal output or passwords?</span>
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </summary>
+          <div class="faq-answer">
+            <p><strong>No.</strong> PeerTerm is designed from the ground up with end-to-end encryption (E2EE). Before any connection starts, the host CLI and viewer perform an ephemeral <strong>ECDH P-256</strong> key exchange using the browser's native Web Crypto API.</p>
+            <p>Every keystroke, terminal output byte, and control packet is encrypted locally using <strong>AES-256-GCM</strong> with unique 12-byte initialization vectors. The relay server acts strictly as a blind packet forwarder—it only ever sees opaque binary blobs and never possesses the decryption keys.</p>
+          </div>
+        </details>
+
+        <details class="faq-item" name="faq">
+          <summary class="faq-question">
+            <span>How do I run PeerTerm behind a corporate firewall?</span>
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </summary>
+          <div class="faq-answer">
+            <p>PeerTerm works behind corporate firewalls automatically without requiring any inbound open ports or router configuration:</p>
+            <ul>
+              <li><strong>Direct P2P:</strong> It first tries direct WebRTC DataChannel connectivity using STUN for automatic NAT traversal.</li>
+              <li><strong>Encrypted Fallback Relay:</strong> If symmetric NAT, strict VPNs, or enterprise firewalls prevent direct P2P connections, PeerTerm automatically falls back to an encrypted WebSocket relay over standard outbound <strong>HTTPS/WSS (port 443)</strong>, which is allowed on virtually all enterprise networks.</li>
+              <li><strong>Self-Hosted:</strong> You can also route sessions through your own private relay using the <code>--relay &lt;url&gt;</code> flag.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="faq-item" name="faq">
+          <summary class="faq-question">
+            <span>Does PeerTerm require root or sudo privileges?</span>
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </summary>
+          <div class="faq-answer">
+            <p><strong>No.</strong> PeerTerm runs entirely in standard user space. Neither the host command (<code>npx peer-term</code>) nor the web viewer requires administrator or <code>sudo</code> privileges.</p>
+            <p>The host process simply spawns a pseudo-terminal (PTY) inside your current shell environment, strictly restricted to your current user account's existing file access and system permissions.</p>
+          </div>
+        </details>
+
+        <details class="faq-item" name="faq">
+          <summary class="faq-question">
+            <span>How does PeerTerm compare to tmate?</span>
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </summary>
+          <div class="faq-answer">
+            <p>While <strong>tmate</strong> is an established tmux-based tool, PeerTerm is designed for frictionless web-first collaboration:</p>
+            <ul>
+              <li><strong>Zero Viewer Setup:</strong> With tmate, peers typically need an SSH client and SSH keys configured. With PeerTerm, viewers just open a web link in any browser on desktop, iPad, or mobile—no software to install.</li>
+              <li><strong>Local P2P WebRTC:</strong> When host and client are on the same local network or reachable via WebRTC, PeerTerm establishes a direct peer-to-peer data channel with sub-10ms zero-relay latency.</li>
+              <li><strong>True E2E Encryption:</strong> In tmate, relay servers terminate SSH sessions. PeerTerm uses client-side ECDH P-256 + AES-256-GCM encryption, ensuring neither the relay nor any middleman can read or modify session data.</li>
+              <li><strong>Live Permission Toggling:</strong> Dynamically toggle active sessions between Read-Only (view-only) and Interactive modes on the fly (<code>r &lt;code&gt;</code>) without restarting or dropping connections.</li>
+              <li><strong>Encrypted File Uploads:</strong> Viewers can drag and drop files (up to 100MB) directly into the host's uploads directory.</li>
+            </ul>
+          </div>
+        </details>
+      </div>
+    </section>
   </div>
 
   <!-- ═══ Connecting Overlay ═══════════════════════════════════════════════ -->

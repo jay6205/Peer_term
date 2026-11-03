@@ -984,6 +984,7 @@
 
     function showTerminal() {
       // Hide connect screen, show terminal
+      document.body.classList.add('terminal-active');
       connectScreen.style.display = 'none';
       connectingOvl.classList.remove('visible');
       terminalScreen.classList.add('active');
@@ -1922,6 +1923,7 @@
       if (fileUploadZone) fileUploadZone.style.display = 'none';
 
       // Reset UI
+      document.body.classList.remove('terminal-active');
       terminalScreen.classList.remove('active');
       connectScreen.style.display = '';
       connectingOvl.classList.remove('visible');
