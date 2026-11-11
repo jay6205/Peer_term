@@ -18,6 +18,8 @@
     const tabBtn          = document.getElementById('tab-btn');
     const toastContainer  = document.getElementById('toast-container');
     const sessionTimerEl  = document.getElementById('session-timer');
+    const sessionEndedOvl = document.getElementById('session-ended-overlay');
+    const sessionEndedCloseBtn = document.getElementById('session-ended-close');
 
     // File upload DOM elements
     const fileUploadZone  = document.getElementById('file-upload-zone');
@@ -507,7 +509,7 @@
                 updateStatusDot('red');
                 updateConnIndicator('lost');
               }
-              setTimeout(() => resetToConnectScreen(), 3000);
+              setTimeout(() => showSessionEndedModal(), 3000);
             } else {
               setLoading(false);
               showError(msg.msg || 'Connection failed');
@@ -684,7 +686,7 @@
               updateConnIndicator('lost');
             }
             showToast('Host ended the session', 'error', 5000);
-            setTimeout(() => resetToConnectScreen(), 3000);
+            setTimeout(() => showSessionEndedModal(), 3000);
             break;
 
           // ─── Session expired (rejoin window passed or code expired) ───
@@ -700,7 +702,7 @@
               updateConnIndicator('lost');
               showToast('Session has ended', 'error', 5000);
             }
-            setTimeout(() => resetToConnectScreen(), 3000);
+            setTimeout(() => showSessionEndedModal(), 3000);
             break;
 
           case 'host-reconnecting':
@@ -759,7 +761,7 @@
                 updateStatusDot('red');
                 updateConnIndicator('lost');
               }
-              setTimeout(() => resetToConnectScreen(), 3000);
+              setTimeout(() => showSessionEndedModal(), 3000);
             } else {
               if (terminal) {
                 terminal.write('\r\n\x1b[1;33m Connection lost. Attempting to reconnect...\x1b[0m\r\n');
@@ -1822,7 +1824,7 @@
             updateConnIndicator('lost');
             showToast('Reconnect window expired', 'error', 5000);
           }
-          setTimeout(() => resetToConnectScreen(), 3000);
+          setTimeout(() => showSessionEndedModal(), 3000);
           return;
         }
 
@@ -1871,10 +1873,29 @@
     }
 
     // ═════════════════════════════════════════════════════════════════════════
+    // SESSION ENDED MODAL — show GitHub star prompt before returning
+    // ═════════════════════════════════════════════════════════════════════════
+
+    function showSessionEndedModal() {
+      // Don't show the modal if the session never fully connected
+      if (!sessionStartTime) {
+        resetToConnectScreen();
+        return;
+      }
+      sessionEndedOvl.classList.add('visible');
+    }
+
+    sessionEndedCloseBtn.addEventListener('click', () => {
+      sessionEndedOvl.classList.remove('visible');
+      resetToConnectScreen();
+    });
+
+    // ═════════════════════════════════════════════════════════════════════════
     // RESET — return to the code entry screen
     // ═════════════════════════════════════════════════════════════════════════
 
     function resetToConnectScreen() {
+      sessionEndedOvl.classList.remove('visible');
       sessionEnded = true;
       if (sessionStartTime) {
         const durationSeconds = Math.round((Date.now() - sessionStartTime) / 1000);

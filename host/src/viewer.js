@@ -107,13 +107,6 @@ export class ViewerServer {
         // Install the real data handler
         let recvBuf = '';
 
-        // Process any leftover data that arrived after the token line
-        if (remaining.length > 0) {
-          handleViewerData(remaining);
-        }
-
-        socket.on('data', (chunk) => handleViewerData(chunk.toString()));
-
         const handleViewerData = (chunk) => {
           // Control messages start with \x00{
           if (recvBuf.length > 0 || chunk.startsWith('\x00{')) {
@@ -148,6 +141,13 @@ export class ViewerServer {
           // Host keystrokes → PTY (host always has access)
           this._onKeystroke(chunk);
         };
+
+        // Process any leftover data that arrived after the token line
+        if (remaining.length > 0) {
+          handleViewerData(remaining);
+        }
+
+        socket.on('data', (chunk) => handleViewerData(chunk.toString()));
 
         socket.on('close', () => {
           this._socket = null;
