@@ -1130,3 +1130,75 @@
       border-color: var(--text-muted);
       background: rgba(255, 255, 255, 0.04);
     }
+
+
+    /* ─── Connect With Me Section ──────────────────────────────────────── */
+    .connect-me-section {
+      width: 100%;
+      max-width: 680px;
+      margin-top: 48px;
+      margin-bottom: 40px;
+      text-align: center;
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    .connect-me-text {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    .connect-me-links {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .connect-me-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+
+    .connect-me-btn:hover {
+      color: var(--text-primary);
+      border-color: var(--text-muted);
+      background: var(--bg-card-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .connect-me-btn svg {
+      flex-shrink: 0;
+      opacity: 0.8;
+      transition: opacity 0.2s ease, fill 0.2s ease;
+    }
+
+    .connect-me-btn:hover svg {
+      opacity: 1;
+    }
+
+    .connect-me-github:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .connect-me-linkedin:hover {
+      border-color: rgba(10, 102, 194, 0.4);
+      color: #38bdf8;
+    }
+
+    .connect-me-linkedin:hover svg {
+      fill: #38bdf8;
+    }
