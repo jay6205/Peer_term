@@ -1,0 +1,427 @@
+.lab-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 20px;
+}
+
+.lab-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lab-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 18px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--line);
+}
+
+.lab-panel-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--ink-muted);
+}
+
+.lab-latency-chip {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--ink-muted);
+}
+
+.lab-latency-chip strong {
+  color: var(--signal);
+  margin-left: 6px;
+}
+
+/* Draggable 3-stop switch rail */
+.rail-controls {
+  padding: 18px 18px 10px;
+}
+
+.rail-labels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.rail-stop-btn {
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 6px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rail-stop-btn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.rail-stop-btn.is-active {
+  color: var(--signal-bright);
+  border-color: var(--signal-line);
+  background: var(--signal-dim);
+}
+
+.draggable-rail-track {
+  position: relative;
+  height: 46px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  touch-action: none;
+}
+
+.rail-tick {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 14px;
+  background: var(--line-strong);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.draggable-rail-knob {
+  position: relative;
+  z-index: 2;
+  width: 32%;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--signal);
+  color: #06110c;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 3px;
+  user-select: none;
+  box-shadow: 0 4px 16px rgba(52, 211, 153, 0.28);
+}
+
+/* SVG Topology Canvas */
+.topo-canvas {
+  position: relative;
+  margin: 12px 18px;
+  height: 220px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.topo-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.topo-base-path {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 5;
+}
+
+.topo-active-path {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 2.5;
+  transition: opacity 0.25s ease;
+}
+
+.topo-active-path--amber {
+  stroke: var(--amber);
+}
+
+.topo-active-path.is-hidden {
+  opacity: 0;
+}
+
+.topo-active-path.is-visible {
+  opacity: 1;
+}
+
+.topo-firewall {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.topo-firewall.is-active {
+  opacity: 1;
+}
+
+.topo-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 11px;
+  background: #12151b;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.topo-node small {
+  font-size: 0.58rem;
+  color: var(--ink-dim);
+}
+
+.topo-node--host {
+  left: 16px;
+  top: 56%;
+  transform: translateY(-50%);
+}
+
+.topo-node--viewer {
+  right: 16px;
+  top: 56%;
+  transform: translateY(-50%);
+}
+
+.topo-node--relay {
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  transition: border-color 0.25s ease;
+}
+
+.topo-node--relay.is-engaged {
+  border-color: var(--amber);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.topo-summary {
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--line);
+  margin-top: auto;
+}
+
+.topo-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.meta-k {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  margin-bottom: 3px;
+}
+
+.meta-v {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink);
+}
+
+.topo-note {
+  font-size: 0.86rem;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+/* Wire Inspector */
+.wire-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+  color: var(--signal);
+  padding: 3px 8px;
+  border: 1px solid var(--signal-line);
+  background: var(--signal-dim);
+  border-radius: 3px;
+}
+
+.wire-input-block {
+  padding: 18px 18px 12px;
+}
+
+.wire-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+  margin-bottom: 8px;
+}
+
+.wire-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+}
+
+.wire-input-wrap:focus-within {
+  border-color: var(--signal);
+}
+
+.wire-ps1 {
+  font-family: var(--font-mono);
+  color: var(--signal);
+  font-weight: 700;
+}
+
+.wire-input-wrap input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.perspective-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 0 18px 14px;
+}
+
+.persp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 6px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.persp-btn.is-active {
+  color: var(--signal-bright);
+  border-color: var(--signal-line);
+  background: var(--signal-dim);
+}
+
+.persp-btn--relay.is-active {
+  color: var(--amber);
+  border-color: rgba(245, 158, 11, 0.5);
+  background: var(--amber-dim);
+}
+
+.wire-screen {
+  margin: 0 18px 16px;
+  background: #060709;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  transition: border-color 0.25s ease;
+}
+
+.wire-screen--relay {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.wire-screen--host,
+.wire-screen--viewer {
+  border-color: var(--signal-line);
+}
+
+.wire-screen-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #101318;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--ink-dim);
+}
+
+.wire-iv {
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+
+.wire-readout {
+  padding: 18px 14px;
+  min-height: 76px;
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--signal-bright);
+  word-break: break-all;
+}
+
+.wire-screen--relay .wire-readout {
+  color: var(--amber);
+}
+
+.crypto-breakdown {
+  padding: 14px 18px 18px;
+  margin-top: auto;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.crypto-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--signal);
+  margin-bottom: 3px;
+}
+
+.crypto-step p {
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+@media (max-width: 960px) {
+  .lab-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topo-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rail-labels,
+  .perspective-bar {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,140 +1,247 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-/* ─── Reset & Base ─────────────────────────────────────── */
+/* ─── PeerTerm Instrument Design System ─────────────────────────────── */
 *,
 *::before,
 *::after {
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
 }
 
 :root {
-  /* Colors */
-  --bg-primary: #0a0a0f;
-  --bg-secondary: #0f0f18;
-  --bg-card: #12121c;
-  --bg-card-hover: #181828;
-  --border: #1e1e32;
-  --border-light: #2a2a44;
+  /* Carbon / Matte Hardware Palette */
+  --bg: #08090b;
+  --bg-elevated: #0e1014;
+  --bg-panel: #13161c;
+  --bg-panel-hover: #191d25;
+  --bg-inset: #090b0e;
 
-  --text-primary: #e8e8f0;
-  --text-secondary: #9898b0;
-  --text-dim: #6868808;
+  --line: #21262e;
+  --line-strong: #323946;
+  --line-bright: #454f60;
 
-  --accent: #00d4aa;
-  --accent-dim: #00d4aa33;
-  --accent-glow: #00d4aa22;
-  --accent-2: #6366f1;
-  --accent-2-dim: #6366f133;
+  --ink: #f1f3f5;
+  --ink-muted: #98a2b3;
+  --ink-dim: #667085;
 
-  --green: #22c55e;
-  --cyan: #06b6d4;
-  --red: #ef4444;
-  --yellow: #eab308;
+  /* Signal Accents — Precision Terminal Phosphor + Telemetry Amber */
+  --signal: #34d399;
+  --signal-bright: #6ee7b7;
+  --signal-dim: rgba(52, 211, 153, 0.14);
+  --signal-line: rgba(52, 211, 153, 0.45);
 
-  /* Spacing */
-  --section-padding: 100px 0;
-  --inner-max: 1200px;
+  --amber: #f59e0b;
+  --amber-dim: rgba(245, 158, 11, 0.14);
+  --danger: #f43f5e;
+  --danger-dim: rgba(244, 63, 94, 0.14);
 
-  /* Font */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  --max-w: 1240px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
 }
 
 html {
   scroll-behavior: smooth;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-display);
   font-size: 16px;
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
-  font-family: var(--font-sans);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.55;
   overflow-x: hidden;
+  /* Subtle millimeter graph paper feel — restrained, technical */
+  background-image: radial-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
-/* ─── Shared Section Styles ───────────────────────────── */
-.section-inner {
-  max-width: var(--inner-max);
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+}
+
+/* ─── Typography & Eyebrows ─────────────────────────────────────────── */
+.section-frame {
+  position: relative;
+  border-top: 1px solid var(--line);
+  padding: 96px 0;
+}
+
+.section-frame--alt {
+  background: linear-gradient(180deg, rgba(14, 16, 20, 0.85) 0%, rgba(8, 9, 11, 0.85) 100%);
+}
+
+.container {
+  max-width: var(--max-w);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 28px;
 }
 
-.section-title {
-  font-size: clamp(1.8rem, 4vw, 2.8rem);
-  font-weight: 700;
-  text-align: center;
-  margin-bottom: 12px;
-  letter-spacing: -0.02em;
+.section-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: end;
+  margin-bottom: 48px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
 }
 
-.section-subtitle {
-  text-align: center;
-  color: var(--text-secondary);
-  font-size: 1.1rem;
-  max-width: 600px;
-  margin: 0 auto 60px;
-}
-
-/* ─── Shared Button Styles ────────────────────────────── */
-.btn-primary {
+.eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 14px 28px;
-  background: var(--accent);
-  color: #0a0a0f;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
   font-weight: 600;
-  font-size: 1rem;
-  border: none;
-  border-radius: 12px;
-  cursor: pointer;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--signal);
+  margin-bottom: 14px;
+}
+
+.eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: var(--signal);
+  box-shadow: 0 0 10px var(--signal);
+}
+
+.section-heading {
+  font-size: clamp(1.9rem, 3.8vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  color: var(--ink);
+}
+
+.section-lead {
+  max-width: 480px;
+  color: var(--ink-muted);
+  font-size: 0.98rem;
+  line-height: 1.65;
+}
+
+/* ─── Technical Buttons ─────────────────────────────────────────────── */
+.btn-signal {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 13px 24px;
+  background: var(--signal);
+  color: #06110c;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   text-decoration: none;
-  transition: all 0.25s ease;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+  will-change: transform;
 }
 
-.btn-primary:hover {
-  background: #00e8bb;
-  transform: translateY(-2px);
-  box-shadow: 0 8px 30px var(--accent-dim);
+.btn-signal:hover {
+  background: var(--signal-bright);
+  box-shadow: 0 0 28px rgba(52, 211, 153, 0.28);
 }
 
-.btn-arrow {
-  transition: transform 0.25s ease;
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--bg-panel);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-decoration: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
-.btn-primary:hover .btn-arrow {
-  transform: translateX(4px);
+.btn-ghost:hover {
+  border-color: var(--signal-line);
+  background: var(--bg-panel-hover);
+  color: var(--signal-bright);
 }
 
-.btn-lg {
-  padding: 18px 36px;
-  font-size: 1.1rem;
-  border-radius: 14px;
+/* Corner crosshair markers for technical panels */
+.panel-tech {
+  position: relative;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
 }
 
-/* ─── Scrollbar ───────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 8px;
-}
-::-webkit-scrollbar-track {
-  background: var(--bg-primary);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border-light);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #3a3a55;
+.mono {
+  font-family: var(--font-mono);
 }
 
-/* ─── Selection ───────────────────────────────────────── */
+.text-signal {
+  color: var(--signal);
+}
+
+.text-amber {
+  color: var(--amber);
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+/* Scrollbar & Selection */
 ::selection {
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: var(--signal-dim);
+  color: var(--signal-bright);
 }
 
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
 
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line-bright);
+}
+
+@media (max-width: 860px) {
+  .section-frame {
+    padding: 68px 0;
+  }
+
+  .container {
+    padding: 0 18px;
+  }
+
+  .section-header {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+}

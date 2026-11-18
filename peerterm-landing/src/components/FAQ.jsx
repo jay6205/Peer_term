@@ -1,101 +1,126 @@
-import { useState, useRef } from 'react';
-import anime from 'animejs/lib/anime.es';
-import useScrollReveal from '../hooks/useScrollReveal';
+import { useEffect, useRef, useState } from 'react';
+import { animate, createScope, createSpring, onScroll, stagger } from 'animejs';
+import { Plus } from 'lucide-react';
 import '../styles/FAQ.css';
 
 const FAQS = [
   {
     q: 'Can the relay server see my terminal output or passwords?',
-    a: 'No. PeerTerm uses client-side End-to-End Encryption (E2EE) with AES-256-GCM and ECDH P-256 key exchange. Keys are negotiated directly between your browser and the host terminal via the Web Crypto API. The relay server acts strictly as a blind packet forwarder.',
+    a: 'No. PeerTerm performs ephemeral ECDH P-256 key exchange via the browser Web Crypto API and encrypts every frame locally with AES-256-GCM and unique 12-byte IVs. The relay only ever forwards opaque binary blobs and never possesses decryption keys.',
   },
   {
-    q: 'How do I run PeerTerm behind a corporate firewall?',
-    a: 'PeerTerm first attempts a direct peer-to-peer WebRTC DataChannel connection using STUN. If that fails, it automatically falls back to an encrypted WebSocket relay over standard HTTPS/WSS (port 443), which works seamlessly through corporate proxies and firewalls.',
+    q: 'How does PeerTerm work behind strict corporate firewalls?',
+    a: 'PeerTerm first negotiates a direct peer-to-peer WebRTC DataChannel via STUN. If symmetric NAT, VPNs, or enterprise firewalls block UDP, it automatically falls back to an end-to-end encrypted WebSocket relay over standard HTTPS/WSS (port 443).',
   },
   {
     q: 'Does PeerTerm require root or sudo privileges?',
-    a: 'No. PeerTerm operates entirely in user space. Neither the host command (npx peer-term) nor the web viewer requires root, administrator, or sudo privileges.',
+    a: 'Never. Both the host CLI (npx peer-term) and the browser viewer operate strictly in user space inside your current shell permissions. No kernel drivers, no inbound open ports.',
   },
   {
-    q: 'How does PeerTerm compare to tmate?',
-    a: "While tmate requires viewers to have SSH clients, PeerTerm works directly in the browser. PeerTerm also offers true E2E encryption (tmate's relay can read data), direct P2P WebRTC connections with sub-10ms latency, encrypted file uploads, and live read-only toggling.",
+    q: 'Can I self-host my own private relay server?',
+    a: 'Yes. Pass --relay wss://your-relay.internal when invoking the host CLI to route signaling and fallback traffic through your own infrastructure.',
   },
   {
-    q: 'Can I self-host the relay server?',
-    a: 'Yes! PeerTerm supports self-hosting. Use the --relay <url> flag when starting the host to route sessions through your own private relay server. The relay only forwards opaque encrypted blobs.',
-  },
-  {
-    q: 'What happens if the WebRTC connection drops?',
-    a: 'PeerTerm automatically falls back to the encrypted WebSocket relay without losing the session. The viewer stays connected and the terminal stream continues seamlessly.',
+    q: 'How is PeerTerm different from tmate?',
+    a: 'tmate requires viewers to have an SSH client configured and terminates SSH sessions at its relay servers. PeerTerm works in any browser with zero setup, enforces true client-side E2EE, uses direct WebRTC P2P when available, and adds 100MB encrypted file uploads plus live read-only toggling.',
   },
 ];
 
-function FAQItem({ faq, isOpen, onToggle }) {
-  const ansRef = useRef(null);
+function FAQRow({ faq, idx, isOpen, onToggle }) {
+  const bodyRef = useRef(null);
+  const iconRef = useRef(null);
 
-  const handleToggle = () => {
-    const el = ansRef.current;
-    if (!el) return;
+  useEffect(() => {
+    const body = bodyRef.current;
+    const icon = iconRef.current;
+    if (!body || !icon) return;
 
-    if (!isOpen) {
-      onToggle();
-      el.style.height = '0px';
-      el.style.opacity = '0';
-      requestAnimationFrame(() => {
-        anime({
-          targets: el,
-          height: [0, el.scrollHeight],
-          opacity: [0, 1],
-          duration: 400,
-          easing: 'easeOutExpo',
-        });
+    if (isOpen) {
+      animate(body, {
+        height: [0, body.scrollHeight],
+        opacity: [0, 1],
+        duration: 460,
+        ease: createSpring({ stiffness: 200, damping: 22 }),
+      });
+      animate(icon, {
+        rotate: 45,
+        duration: 320,
+        ease: createSpring({ stiffness: 260, damping: 18 }),
       });
     } else {
-      anime({
-        targets: el,
+      animate(body, {
         height: 0,
         opacity: 0,
-        duration: 300,
-        easing: 'easeInExpo',
-        complete: onToggle,
+        duration: 280,
+        ease: 'outExpo',
+      });
+      animate(icon, {
+        rotate: 0,
+        duration: 280,
+        ease: 'outExpo',
       });
     }
-  };
+  }, [isOpen]);
 
   return (
-    <div className={`faq-item ${isOpen ? 'open' : ''}`}>
-      <button className="faq-q" onClick={handleToggle}>
-        <span>{faq.q}</span>
-        <span className="faq-chevron">{isOpen ? '−' : '+'}</span>
+    <div className={`faq-row panel-tech faq-reveal ${isOpen ? 'is-open' : ''}`}>
+      <button type="button" className="faq-trigger" onClick={onToggle} aria-expanded={isOpen}>
+        <span className="faq-index mono">{String(idx + 1).padStart(2, '0')}</span>
+        <span className="faq-question">{faq.q}</span>
+        <span ref={iconRef} className="faq-icon">
+          <Plus size={16} />
+        </span>
       </button>
-      <div
-        ref={ansRef}
-        className="faq-a"
-        style={{ height: isOpen ? 'auto' : 0, opacity: isOpen ? 1 : 0, overflow: 'hidden' }}
-      >
-        <p>{faq.a}</p>
+      <div ref={bodyRef} className="faq-body" style={{ height: 0, opacity: 0, overflow: 'hidden' }}>
+        <p className="faq-answer">{faq.a}</p>
       </div>
     </div>
   );
 }
 
 export default function FAQ() {
-  const [openIndex, setOpenIndex] = useState(null);
-  const titleRef = useScrollReveal();
+  const sectionRef = useRef(null);
+  const [openIdx, setOpenIdx] = useState(0);
+
+  useEffect(() => {
+    const scope = createScope({ root: sectionRef }).add(() => {
+      animate('.faq-reveal', {
+        opacity: [0, 1],
+        y: [22, 0],
+        delay: stagger(65),
+        duration: 680,
+        ease: 'outExpo',
+        autoplay: onScroll({
+          target: sectionRef.current,
+          enter: 'bottom-=10% top',
+        }),
+      });
+    });
+
+    return () => scope.revert();
+  }, []);
 
   return (
-    <section id="faq" className="faq-section">
-      <div className="section-inner">
-        <div ref={titleRef}>
-          <h2 className="section-title">Frequently Asked Questions</h2>
+    <section ref={sectionRef} id="faq" className="section-frame section-frame--alt">
+      <div className="container">
+        <div className="section-header faq-reveal">
+          <div>
+            <div className="eyebrow">06 // TECHNICAL FAQ</div>
+            <h2 className="section-heading">Security &amp; deployment questions.</h2>
+          </div>
+          <p className="section-lead">
+            Straight answers on cryptography, firewall traversal, self-hosting, and permissions.
+          </p>
         </div>
-        <div className="faq-list">
-          {FAQS.map((faq, i) => (
-            <FAQItem
-              key={i}
+
+        <div className="faq-stack">
+          {FAQS.map((faq, idx) => (
+            <FAQRow
+              key={idx}
               faq={faq}
-              isOpen={openIndex === i}
-              onToggle={() => setOpenIndex(openIndex === i ? null : i)}
+              idx={idx}
+              isOpen={openIdx === idx}
+              onToggle={() => setOpenIdx(openIdx === idx ? -1 : idx)}
             />
           ))}
         </div>

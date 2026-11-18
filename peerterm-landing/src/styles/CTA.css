@@ -1,61 +1,77 @@
-/* ─── CTA ─────────────────────────────────────────────── */
-.cta-section {
-  position: relative;
-  padding: 120px 0;
+.cta-box {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 32px;
+  padding: 36px;
+  background: var(--bg-elevated);
+  align-items: center;
+}
+
+.cta-copy .section-heading {
+  margin-bottom: 14px;
+}
+
+.cta-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 26px;
+}
+
+.mesh-panel {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
   overflow: hidden;
-  background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
-  border-top: 1px solid var(--border);
 }
 
-.cta-particles {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+.mesh-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
 }
 
-.cta-particle {
-  position: absolute;
-  background: var(--accent);
-  border-radius: 50%;
-  opacity: 0;
+.mesh-grid {
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  gap: 4px;
+  padding: 18px 14px;
 }
 
-.cta-content {
-  position: relative;
-  z-index: 1;
-  text-align: center;
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-.cta-content h2 {
-  font-size: clamp(1.8rem, 4vw, 2.6rem);
-  font-weight: 700;
-  margin-bottom: 16px;
-  letter-spacing: -0.02em;
-}
-
-.cta-content p {
-  color: var(--text-secondary);
-  font-size: 1.1rem;
-  margin-bottom: 40px;
-}
-
-.cta-actions {
+.mesh-dot-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
-  flex-wrap: wrap;
+  aspect-ratio: 1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
 }
 
-.cta-command {
-  padding: 16px 28px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  font-family: var(--font-mono);
-  font-size: 1.05rem;
-  color: var(--accent);
+.mesh-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #27303d;
+  transition: box-shadow 0.2s ease;
+  will-change: transform, background-color;
+}
+
+.mesh-dot-btn:hover .mesh-dot {
+  background: var(--signal);
+  box-shadow: 0 0 10px var(--signal);
+}
+
+@media (max-width: 940px) {
+  .cta-box {
+    grid-template-columns: 1fr;
+    padding: 24px;
+  }
 }

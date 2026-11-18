@@ -1,24 +1,92 @@
 import { useEffect, useRef, useState } from 'react';
-import anime from 'animejs/lib/anime.es';
+import { animate, createAnimatable, createScope, onScroll, stagger, utils } from 'animejs';
+import { ArrowUpRight, Menu, X } from 'lucide-react';
 import '../styles/Navbar.css';
 
-export default function Navbar() {
+const NAV_ITEMS = [
+  { id: 'workbench', label: '01 Workbench' },
+  { id: 'encryption-lab', label: '02 Tunnel Lab' },
+  { id: 'capabilities', label: '03 Modules' },
+  { id: 'pipeline', label: '04 Protocol' },
+  { id: 'comparison', label: '05 Compare' },
+  { id: 'faq', label: '06 FAQ' },
+];
+
+export default function Navbar({ booted }) {
   const navRef = useRef(null);
+  const progressRef = useRef(null);
+  const magneticBtnRef = useRef(null);
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [scrollPct, setScrollPct] = useState(0);
 
+  // Entrance animation synced with boot completion
   useEffect(() => {
-    anime({
-      targets: navRef.current,
-      translateY: [-60, 0],
-      opacity: [0, 1],
-      duration: 900,
-      easing: 'easeOutExpo',
+    if (!booted) return;
+    const scope = createScope({ root: navRef }).add(() => {
+      animate('.nav-stagger', {
+        opacity: [0, 1],
+        y: [-14, 0],
+        delay: stagger(45),
+        duration: 600,
+        ease: 'outExpo',
+      });
+    });
+    return () => scope.revert();
+  }, [booted]);
+
+  // Scroll-synced telemetry bar using Anime.js onScroll + createAnimatable magnetic button
+  useEffect(() => {
+    const scrollAnim = animate(progressRef.current, {
+      scaleX: [0, 1],
+      ease: 'linear',
+      autoplay: onScroll({
+        target: document.documentElement,
+        enter: 'top top',
+        leave: 'bottom bottom',
+        sync: 0.35,
+        onUpdate: (self) => {
+          setScrollPct(Math.round(self.progress * 100));
+        },
+      }),
     });
 
-    const onScroll = () => setScrolled(window.scrollY > 40);
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    const btn = magneticBtnRef.current;
+    let mag;
+    const handleMove = (e) => {
+      if (!btn || !mag) return;
+      const r = btn.getBoundingClientRect();
+      const dx = utils.clamp((e.clientX - (r.left + r.width / 2)) * 0.28, -10, 10);
+      const dy = utils.clamp((e.clientY - (r.top + r.height / 2)) * 0.28, -6, 6);
+      mag.x(dx);
+      mag.y(dy);
+    };
+    const handleLeave = () => {
+      if (!mag) return;
+      mag.x(0);
+      mag.y(0);
+    };
+
+    if (btn) {
+      mag = createAnimatable(btn, {
+        x: 240,
+        y: 240,
+        ease: 'out(3)',
+      });
+      btn.addEventListener('mousemove', handleMove);
+      btn.addEventListener('mouseleave', handleLeave);
+    }
+
+    const onWinScroll = () => setScrolled(window.scrollY > 24);
+    window.addEventListener('scroll', onWinScroll, { passive: true });
+
+    return () => {
+      scrollAnim.revert();
+      mag?.revert();
+      btn?.removeEventListener('mousemove', handleMove);
+      btn?.removeEventListener('mouseleave', handleLeave);
+      window.removeEventListener('scroll', onWinScroll);
+    };
   }, []);
 
   const scrollTo = (id) => {
@@ -27,40 +95,66 @@ export default function Navbar() {
   };
 
   return (
-    <nav ref={navRef} className={`navbar ${scrolled ? 'scrolled' : ''}`}>
-      <div className="nav-inner">
-        <div className="nav-brand" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-          <span className="nav-logo">⬡</span>
-          <span className="nav-name">PeerTerm</span>
-        </div>
+    <header ref={navRef} className={`navbar ${scrolled ? 'navbar--scrolled' : ''}`}>
+      <div className="nav-progress-rail">
+        <div ref={progressRef} className="nav-progress-fill" />
+      </div>
 
-        <button className="nav-hamburger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">
-          <span /><span /><span />
+      <div className="nav-inner">
+        <button
+          className="nav-brand nav-stagger"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        >
+          <svg viewBox="0 0 28 28" width="22" height="22" fill="none" aria-hidden="true">
+            <polygon points="14,2 25,8 25,20 14,26 3,20 3,8" stroke="var(--signal)" strokeWidth="1.8" />
+            <polyline points="9,11 13,14 9,17" stroke="var(--ink)" strokeWidth="2" strokeLinecap="square" />
+            <line x1="15" y1="17" x2="19" y2="17" stroke="var(--signal)" strokeWidth="2" strokeLinecap="square" />
+          </svg>
+          <span className="nav-wordmark">PeerTerm</span>
+          <span className="nav-ver">v1.0</span>
         </button>
 
-        <div className={`nav-links ${menuOpen ? 'open' : ''}`}>
-          <button onClick={() => scrollTo('features')}>Features</button>
-          <button onClick={() => scrollTo('how-it-works')}>How It Works</button>
-          <button onClick={() => scrollTo('comparison')}>Compare</button>
-          <button onClick={() => scrollTo('faq')}>FAQ</button>
-        </div>
-        <div className="nav-actions">
+        <nav className={`nav-links ${menuOpen ? 'nav-links--open' : ''}`} aria-label="Primary">
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              className="nav-link nav-stagger"
+              onClick={() => scrollTo(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="nav-right nav-stagger">
+          <span className="nav-telemetry" aria-hidden="true">
+            SCROLL {scrollPct.toString().padStart(3, '0')}%
+          </span>
           <a
             href="https://github.com/jay6205/Peer_term"
             target="_blank"
             rel="noopener noreferrer"
-            className="nav-github"
+            className="nav-gh"
           >
-            <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-            </svg>
-            <span>Star</span>
+            GitHub
           </a>
-          <a href="https://peerterm.dhananjaybalekar.in" className="nav-cta">
-            Try PeerTerm
+          <a
+            ref={magneticBtnRef}
+            href="https://peerterm.dhananjaybalekar.in"
+            className="nav-launch"
+          >
+            <span>Launch</span>
+            <ArrowUpRight size={14} />
           </a>
+          <button
+            className="nav-mobile-toggle"
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-label="Toggle navigation"
+          >
+            {menuOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
         </div>
       </div>
-    </nav>
+    </header>
   );
 }

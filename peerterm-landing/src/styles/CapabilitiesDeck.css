@@ -1,0 +1,331 @@
+.deck-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.deck-filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.filter-pill {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 7px 11px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.filter-pill:hover {
+  color: var(--ink);
+}
+
+.filter-pill.is-active {
+  background: var(--signal-dim);
+  border-color: var(--signal-line);
+  color: var(--signal-bright);
+}
+
+.shuffle-btn {
+  padding: 9px 14px;
+  font-size: 0.74rem;
+}
+
+/* AutoLayout FLIP Grid */
+.deck-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.deck-card {
+  padding: 22px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.deck-card:hover {
+  border-color: var(--line-bright);
+  background: var(--bg-panel-hover);
+}
+
+.deck-card.is-expanded {
+  grid-column: span 2;
+  border-color: var(--signal-line);
+  background: #141920;
+}
+
+.deck-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.deck-id-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.deck-icon-box {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--signal);
+}
+
+.deck-code {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-dim);
+  letter-spacing: 0.08em;
+}
+
+.deck-metric {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--signal-bright);
+  background: var(--signal-dim);
+  border: 1px solid var(--signal-line);
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+
+.deck-expand-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.deck-card.is-expanded .deck-expand-btn {
+  color: var(--signal);
+  border-color: var(--signal-line);
+}
+
+.deck-title {
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.deck-summary {
+  font-size: 0.88rem;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.deck-expanded-body {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.deck-detail {
+  font-size: 0.86rem;
+  color: var(--ink);
+  line-height: 1.62;
+}
+
+.deck-cli-box {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+  padding: 10px 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* Draggable File Upload Sandbox */
+.drop-sandbox {
+  margin-top: 24px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+
+.drop-sandbox-head {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 11px 18px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+}
+
+.drop-arena {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 22px;
+  min-height: 132px;
+  background: var(--bg-inset);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.draggable-file-chip {
+  position: relative;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #141922;
+  border: 1px solid var(--signal-line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  touch-action: none;
+}
+
+.chip-grip {
+  color: var(--ink-dim);
+}
+
+.file-chip-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.file-chip-meta strong {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.file-chip-meta span {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--signal);
+}
+
+.drop-arrow-hint {
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+}
+
+.host-drop-target {
+  position: relative;
+  width: min(400px, 46%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 18px 24px;
+  background: #0d1015;
+  border: 1.5px dashed var(--line-bright);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.host-drop-target.is-over {
+  border-color: var(--signal);
+  background: var(--signal-dim);
+}
+
+.host-drop-target.is-done {
+  border-style: solid;
+  border-color: var(--signal-line);
+}
+
+.drop-target-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.drop-target-copy strong {
+  font-size: 0.86rem;
+  color: var(--ink);
+}
+
+.drop-target-copy span {
+  font-size: 0.68rem;
+  color: var(--ink-muted);
+}
+
+.drop-progress-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: var(--line);
+}
+
+.drop-progress-fill {
+  height: 100%;
+  background: var(--signal);
+  transition: width 0.08s linear;
+}
+
+@media (max-width: 920px) {
+  .deck-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .drop-arena {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .drop-arrow-hint {
+    text-align: center;
+  }
+
+  .host-drop-target {
+    width: 100%;
+  }
+}
+
+@media (max-width: 620px) {
+  .deck-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .deck-card.is-expanded {
+    grid-column: span 1;
+  }
+}

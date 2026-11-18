@@ -1,90 +1,90 @@
-/* ─── Comparison ──────────────────────────────────────── */
-.comparison-section {
-  padding: var(--section-padding);
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.table-wrapper {
+.cmp-matrix {
   overflow-x: auto;
-  margin-top: 20px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
+  background: var(--bg-elevated);
 }
 
-.comparison-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
+.cmp-head,
+.cmp-row {
+  display: grid;
+  grid-template-columns: 2.2fr 1fr 1fr 1fr 1fr;
+  min-width: 720px;
+  align-items: center;
 }
 
-.comparison-table th,
-.comparison-table td {
-  padding: 16px 24px;
-  text-align: center;
-  border-bottom: 1px solid var(--border);
+.cmp-head {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
 }
 
-.comparison-table th {
-  background: var(--bg-card);
-  font-weight: 600;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
+.cmp-head > div,
+.cmp-row > div {
+  padding: 15px 18px;
 }
 
-.comparison-table th.col-peerterm {
-  color: var(--accent);
-  background: rgba(0, 212, 170, 0.05);
+.cmp-row {
+  border-bottom: 1px solid var(--line);
+  transition: background 0.18s ease;
 }
 
-.comparison-table td.col-peerterm {
-  background: rgba(0, 212, 170, 0.03);
-}
-
-.comparison-table td.feature-name {
-  text-align: left;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.comparison-table tbody tr {
-  transition: background 0.2s ease;
-}
-
-.comparison-table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.comparison-table tbody tr:last-child td {
+.cmp-row:last-child {
   border-bottom: none;
 }
 
-.cell-yes {
-  color: var(--green);
-  font-weight: 700;
-  font-size: 1.1rem;
+.cmp-row:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
-.cell-no {
-  color: var(--red);
-  font-weight: 700;
-  font-size: 1.1rem;
-  opacity: 0.6;
-}
-
-.cell-partial {
-  color: var(--yellow);
-  font-size: 0.82rem;
+.cmp-col-feature {
+  font-size: 0.9rem;
   font-weight: 500;
+  color: var(--ink);
 }
 
-@media (max-width: 600px) {
-  .comparison-table th,
-  .comparison-table td {
-    padding: 12px 14px;
-    font-size: 0.8rem;
-  }
+.cmp-col {
+  text-align: center;
+}
+
+.cmp-col--pt {
+  background: rgba(52, 211, 153, 0.05);
+  border-left: 1px solid var(--signal-dim);
+  border-right: 1px solid var(--signal-dim);
+}
+
+.cmp-head .cmp-col--pt {
+  color: var(--signal);
+}
+
+.cmp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 4px 9px;
+  border-radius: 3px;
+}
+
+.cmp-badge--yes {
+  color: var(--signal-bright);
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.cmp-badge--yes.is-primary {
+  background: var(--signal-dim);
+  border: 1px solid var(--signal-line);
+  font-weight: 700;
+}
+
+.cmp-badge--no {
+  color: var(--ink-dim);
+}
+
+.cmp-badge--partial {
+  color: var(--amber);
+  background: var(--amber-dim);
 }
