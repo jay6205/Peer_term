@@ -10,6 +10,7 @@ import {
   utils,
 } from 'animejs';
 import { ArrowUpRight, Check, Copy } from 'lucide-react';
+import { trackLandingEvent, useSectionTracking } from '../utils/analytics';
 import '../styles/CTA.css';
 
 const COLS = 14;
@@ -23,6 +24,9 @@ export default function CTA() {
   const copyValRef = useRef(null);
   const [copied, setCopied] = useState(false);
   const [ripples, setRipples] = useState(0);
+  const rippleTrackedRef = useRef(false);
+
+  useSectionTracking(sectionRef, 'bottom_cta');
 
   // Scroll-triggered entrance + magnetic CTA button
   useEffect(() => {
@@ -76,6 +80,10 @@ export default function CTA() {
     const grid = gridRef.current;
     if (!grid) return;
     setRipples((r) => r + 1);
+    if (!rippleTrackedRef.current) {
+      rippleTrackedRef.current = true;
+      trackLandingEvent('mesh_ripple', { origin_index: originIndex });
+    }
 
     const dots = grid.querySelectorAll('.mesh-dot');
     animate(dots, {
@@ -93,6 +101,7 @@ export default function CTA() {
 
   const handleCopy = () => {
     navigator.clipboard?.writeText('npx peer-term');
+    trackLandingEvent('copy_command', { location: 'bottom_cta', command: 'npx peer-term' });
     setCopied(true);
     triggerRipple(Math.floor(TOTAL_DOTS / 2));
 
@@ -139,6 +148,7 @@ export default function CTA() {
                 ref={magneticRef}
                 href="https://peerterm.dhananjaybalekar.in/connect/"
                 className="btn-signal"
+                onClick={() => trackLandingEvent('cta_click', { location: 'bottom_cta', destination: '/connect/' })}
               >
                 <span>Open PeerTerm Viewer</span>
                 <ArrowUpRight size={15} />

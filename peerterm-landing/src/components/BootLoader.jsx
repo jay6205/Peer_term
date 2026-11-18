@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createScope, createTimeline, svg, scrambleText } from 'animejs';
+import { trackLandingEvent } from '../utils/analytics';
 import '../styles/BootLoader.css';
 
 export default function BootLoader({ onCurtainStart, onComplete }) {
@@ -10,9 +11,10 @@ export default function BootLoader({ onCurtainStart, onComplete }) {
   onCurtainStartRef.current = onCurtainStart;
   onCompleteRef.current = onComplete;
 
-  const finish = () => {
+  const handleSkip = () => {
     if (doneRef.current) return;
     doneRef.current = true;
+    trackLandingEvent('boot_skipped');
     onCompleteRef.current?.();
   };
 
@@ -77,7 +79,7 @@ export default function BootLoader({ onCurtainStart, onComplete }) {
   }, []);
 
   return (
-    <div ref={rootRef} className="boot-overlay" onClick={finish} role="status" aria-label="Initializing PeerTerm">
+    <div ref={rootRef} className="boot-overlay" onClick={handleSkip} role="status" aria-label="Initializing PeerTerm">
       <div className="boot-curtain boot-curtain-top" />
       <div className="boot-curtain boot-curtain-bottom" />
       <div className="boot-core">

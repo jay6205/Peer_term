@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { animate, createScope, onScroll, stagger } from 'animejs';
+import { trackLandingEvent } from '../utils/analytics';
 import '../styles/Footer.css';
 
 export default function Footer() {
@@ -32,17 +33,42 @@ export default function Footer() {
         </div>
 
         <div className="footer-links ft-reveal">
-          <a href="https://peerterm.dhananjaybalekar.in/connect/">Web App</a>
-          <a href="https://github.com/jay6205/Peer_term" target="_blank" rel="noopener noreferrer">
+          <a
+            href="https://peerterm.dhananjaybalekar.in/connect/"
+            onClick={() => trackLandingEvent('cta_click', { location: 'footer', destination: '/connect/' })}
+          >
+            Web App
+          </a>
+          <a
+            href="https://github.com/jay6205/Peer_term"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => trackLandingEvent('outbound_click', { target: 'github', location: 'footer' })}
+          >
             GitHub
           </a>
-          <a href="https://www.npmjs.com/package/peer-term" target="_blank" rel="noopener noreferrer">
+          <a
+            href="https://www.npmjs.com/package/peer-term"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => trackLandingEvent('outbound_click', { target: 'npm', location: 'footer' })}
+          >
             npm
           </a>
-          <a href="https://linkedin.com/in/dhananjay-balekar" target="_blank" rel="noopener noreferrer">
+          <a
+            href="https://linkedin.com/in/dhananjay-balekar"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => trackLandingEvent('outbound_click', { target: 'linkedin', location: 'footer' })}
+          >
             LinkedIn
           </a>
-          <a href="https://dhananjaybalekar.in" target="_blank" rel="noopener noreferrer">
+          <a
+            href="https://dhananjaybalekar.in"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => trackLandingEvent('outbound_click', { target: 'portfolio', location: 'footer' })}
+          >
             Dhananjay Balekar
           </a>
         </div>

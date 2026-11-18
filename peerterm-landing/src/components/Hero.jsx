@@ -21,6 +21,7 @@ import {
   Unlock,
   Wifi,
 } from 'lucide-react';
+import { trackLandingEvent, useSectionTracking } from '../utils/analytics';
 import '../styles/Hero.css';
 
 const COMMAND_PRESETS = [
@@ -77,6 +78,9 @@ export default function Hero({ booted }) {
   const [packetCount, setPacketCount] = useState(14);
   const [cableMid, setCableMid] = useState({ x: 320, y: 190 });
   const [draggingNode, setDraggingNode] = useState(null);
+  const dragTrackedRef = useRef({ host: false, viewer: false });
+
+  useSectionTracking(heroRef, 'hero_workbench');
 
   const updateCable = useCallback(() => {
     const stage = stageRef.current;
@@ -222,6 +226,10 @@ export default function Hero({ booted }) {
       onGrab: () => {
         setActiveZ({ host: 10, viewer: 5 });
         setDraggingNode('host');
+        if (!dragTrackedRef.current.host) {
+          dragTrackedRef.current.host = true;
+          trackLandingEvent('workbench_drag', { node: 'host_cli' });
+        }
       },
       onDrag: () => updateCable(),
       onUpdate: () => updateCable(),
@@ -238,6 +246,10 @@ export default function Hero({ booted }) {
       onGrab: () => {
         setActiveZ({ host: 5, viewer: 10 });
         setDraggingNode('viewer');
+        if (!dragTrackedRef.current.viewer) {
+          dragTrackedRef.current.viewer = true;
+          trackLandingEvent('workbench_drag', { node: 'browser_viewer' });
+        }
       },
       onDrag: () => updateCable(),
       onUpdate: () => updateCable(),
@@ -263,6 +275,7 @@ export default function Hero({ booted }) {
   }, [updateCable, firePacket]);
 
   const runPreset = (preset) => {
+    trackLandingEvent('workbench_command', { command: preset.cmd });
     setHistory((prev) => {
       const next = [
         ...prev,
@@ -323,6 +336,7 @@ export default function Hero({ booted }) {
 
   const handleCopyCommand = () => {
     navigator.clipboard?.writeText('npx peer-term');
+    trackLandingEvent('copy_command', { location: 'hero', command: 'npx peer-term' });
     setCopied(true);
     if (copyTextRef.current) {
       animate(copyTextRef.current, {
@@ -373,7 +387,11 @@ export default function Hero({ booted }) {
             </p>
 
             <div className="hero-actions hero-fade">
-              <a href="https://peerterm.dhananjaybalekar.in/connect/" className="btn-signal">
+              <a
+                href="https://peerterm.dhananjaybalekar.in/connect/"
+                className="btn-signal"
+                onClick={() => trackLandingEvent('cta_click', { location: 'hero', destination: '/connect/' })}
+              >
                 <span>Open Web Viewer</span>
                 <ArrowUpRight size={15} />
               </a>
@@ -435,7 +453,9 @@ export default function Hero({ booted }) {
                 type="button"
                 className={`wb-cmd-btn ${readOnly ? 'wb-cmd-btn--amber' : ''}`}
                 onClick={() => {
-                  setReadOnly((r) => !r);
+                  const next = !readOnly;
+                  setReadOnly(next);
+                  trackLandingEvent('workbench_readonly_toggle', { read_only: next });
                   firePacket();
                 }}
               >

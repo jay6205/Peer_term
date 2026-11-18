@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { animate, createLayout, createScope, onScroll, stagger } from 'animejs';
 import { Check, Minus, X } from 'lucide-react';
+import { trackLandingEvent, useSectionTracking } from '../utils/analytics';
 import '../styles/Comparison.css';
 
 const COMP_ROWS = [
@@ -53,6 +54,8 @@ export default function Comparison() {
   const layoutRef = useRef(null);
   const [cat, setCat] = useState('all');
 
+  useSectionTracking(sectionRef, 'comparison_matrix');
+
   useEffect(() => {
     const scope = createScope({ root: sectionRef }).add(() => {
       animate('.cmp-reveal', {
@@ -84,6 +87,7 @@ export default function Comparison() {
   }, []);
 
   const handleCat = (next) => {
+    trackLandingEvent('comparison_filter', { category: next });
     if (!layoutRef.current) {
       setCat(next);
       return;

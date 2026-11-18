@@ -9,6 +9,7 @@ import {
   svg,
 } from 'animejs';
 import { KeyRound, Radio, Terminal } from 'lucide-react';
+import { trackLandingEvent, useSectionTracking } from '../utils/analytics';
 import '../styles/HowItWorks.css';
 
 const STAGES = [
@@ -64,6 +65,8 @@ export default function HowItWorks() {
   const frameTitleRef = useRef(null);
   const frameCardRef = useRef(null);
   const [activeIdx, setActiveIdx] = useState(0);
+
+  useSectionTracking(sectionRef, 'protocol_pipeline');
 
   const stage = STAGES[activeIdx];
 
@@ -161,7 +164,10 @@ export default function HowItWorks() {
                 key={s.id}
                 type="button"
                 className={`stage-card panel-tech pipe-reveal ${isActive ? 'is-active' : ''}`}
-                onClick={() => setActiveIdx(idx)}
+                onClick={() => {
+                  setActiveIdx(idx);
+                  trackLandingEvent('pipeline_stage_click', { stage: s.id, step: s.step });
+                }}
               >
                 <div className="stage-top">
                   <span className="stage-num">{s.step}</span>

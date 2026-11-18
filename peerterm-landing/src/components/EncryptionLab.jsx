@@ -10,6 +10,7 @@ import {
   svg,
 } from 'animejs';
 import { Eye, EyeOff, GripVertical, ShieldCheck, Terminal, Radio, Server } from 'lucide-react';
+import { trackLandingEvent, useSectionTracking } from '../utils/analytics';
 import '../styles/EncryptionLab.css';
 
 const MODES = [
@@ -68,6 +69,8 @@ export default function EncryptionLab() {
   modeIndexRef.current = modeIndex;
   const [perspective, setPerspective] = useState('relay'); // 'host' | 'relay' | 'viewer'
   const [payload, setPayload] = useState('export PROD_TOKEN=pt_live_98f2a1c0');
+
+  useSectionTracking(sectionRef, 'encryption_lab');
 
   const activeMode = MODES[modeIndex];
 
@@ -129,6 +132,7 @@ export default function EncryptionLab() {
           }
         });
         setModeIndex(closest);
+        trackLandingEvent('lab_mode_change', { mode: MODES[closest].id, method: 'drag' });
       },
     });
 
@@ -154,6 +158,7 @@ export default function EncryptionLab() {
   // Click any mode stop to smoothly slide the draggable handle there
   const selectMode = (idx) => {
     setModeIndex(idx);
+    trackLandingEvent('lab_mode_change', { mode: MODES[idx].id, method: 'click' });
     const track = trackRef.current;
     const knob = knobRef.current;
     if (!track || !knob) return;
@@ -397,7 +402,10 @@ export default function EncryptionLab() {
                   className={`persp-btn ${perspective === p.id ? 'is-active' : ''} ${
                     p.id === 'relay' ? 'persp-btn--relay' : ''
                   }`}
-                  onClick={() => setPerspective(p.id)}
+                  onClick={() => {
+                    setPerspective(p.id);
+                    trackLandingEvent('lab_perspective_change', { perspective: p.id });
+                  }}
                 >
                   {p.icon}
                   <span>{p.label}</span>

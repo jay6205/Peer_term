@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { animate, createAnimatable, createScope, onScroll, stagger, utils } from 'animejs';
 import { ArrowUpRight, Menu, X } from 'lucide-react';
+import { trackLandingEvent } from '../utils/analytics';
 import '../styles/Navbar.css';
 
 const NAV_ITEMS = [
@@ -91,6 +92,7 @@ export default function Navbar({ booted }) {
 
   const scrollTo = (id) => {
     setMenuOpen(false);
+    trackLandingEvent('nav_click', { target_section: id });
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
   };
 
@@ -135,6 +137,7 @@ export default function Navbar({ booted }) {
             target="_blank"
             rel="noopener noreferrer"
             className="nav-gh"
+            onClick={() => trackLandingEvent('outbound_click', { target: 'github', location: 'navbar' })}
           >
             GitHub
           </a>
@@ -142,6 +145,7 @@ export default function Navbar({ booted }) {
             ref={magneticBtnRef}
             href="https://peerterm.dhananjaybalekar.in/connect/"
             className="nav-launch"
+            onClick={() => trackLandingEvent('cta_click', { location: 'navbar', destination: '/connect/' })}
           >
             <span>Launch</span>
             <ArrowUpRight size={14} />

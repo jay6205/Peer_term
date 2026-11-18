@@ -24,6 +24,7 @@ import {
   Terminal,
   UploadCloud,
 } from 'lucide-react';
+import { trackLandingEvent, useSectionTracking } from '../utils/analytics';
 import '../styles/CapabilitiesDeck.css';
 
 const INITIAL_MODULES = [
@@ -126,6 +127,8 @@ export default function CapabilitiesDeck() {
   const [uploadState, setUploadState] = useState({ status: 'idle', progress: 0 });
   const [overTarget, setOverTarget] = useState(false);
 
+  useSectionTracking(sectionRef, 'capabilities_deck');
+
   // Scroll-triggered reveal + createLayout initialization
   useEffect(() => {
     const scope = createScope({ root: sectionRef }).add(() => {
@@ -169,6 +172,7 @@ export default function CapabilitiesDeck() {
   };
 
   const handleFilter = (nextCat) => {
+    trackLandingEvent('deck_filter', { category: nextCat });
     updateDeckLayout(() => {
       setFilter(nextCat);
       if (nextCat !== 'all') {
@@ -179,6 +183,7 @@ export default function CapabilitiesDeck() {
   };
 
   const handleShuffle = () => {
+    trackLandingEvent('deck_shuffle');
     updateDeckLayout(() => {
       setModules((prev) => {
         const copy = [...prev];
@@ -192,6 +197,9 @@ export default function CapabilitiesDeck() {
   };
 
   const toggleExpand = (id) => {
+    if (expandedId !== id) {
+      trackLandingEvent('deck_expand', { module_id: id });
+    }
     updateDeckLayout(() => {
       setExpandedId((curr) => (curr === id ? null : id));
     });
@@ -228,6 +236,7 @@ export default function CapabilitiesDeck() {
         },
         onComplete: () => {
           setUploadState({ status: 'done', progress: 100 });
+          trackLandingEvent('file_drop_complete');
           if (hashRef.current) {
             animate(hashRef.current, {
               textContent: scrambleText({

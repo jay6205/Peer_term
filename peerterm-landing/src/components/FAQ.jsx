@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { animate, createScope, createSpring, onScroll, stagger } from 'animejs';
 import { Plus } from 'lucide-react';
+import { trackLandingEvent, useSectionTracking } from '../utils/analytics';
 import '../styles/FAQ.css';
 
 const FAQS = [
@@ -82,6 +83,8 @@ export default function FAQ() {
   const sectionRef = useRef(null);
   const [openIdx, setOpenIdx] = useState(0);
 
+  useSectionTracking(sectionRef, 'faq');
+
   useEffect(() => {
     const scope = createScope({ root: sectionRef }).add(() => {
       animate('.faq-reveal', {
@@ -120,7 +123,13 @@ export default function FAQ() {
               faq={faq}
               idx={idx}
               isOpen={openIdx === idx}
-              onToggle={() => setOpenIdx(openIdx === idx ? -1 : idx)}
+              onToggle={() => {
+                const opening = openIdx !== idx;
+                setOpenIdx(opening ? idx : -1);
+                if (opening) {
+                  trackLandingEvent('faq_open', { question_index: idx + 1, question: faq.q });
+                }
+              }}
             />
           ))}
         </div>
