@@ -5,8 +5,16 @@
   
   <br />
 
+  [![Website](https://img.shields.io/badge/Website-peerterm.dhananjaybalekar.in-34d399)](https://peerterm.dhananjaybalekar.in/)
+  [![npm version](https://img.shields.io/npm/v/peer-term?color=cb3837)](https://www.npmjs.com/package/peer-term)
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
   [![Node.js](https://img.shields.io/badge/Node.js-18+-success)](https://nodejs.org/)
+
+  <p>
+    <a href="https://peerterm.dhananjaybalekar.in/"><strong>Explore Website &amp; Interactive Demo</strong></a>
+    &nbsp;·&nbsp;
+    <a href="https://peerterm.dhananjaybalekar.in/connect/"><strong>Open Web Viewer</strong></a>
+  </p>
 
 </div>
 
@@ -36,7 +44,8 @@ That's it! You will be given a 6-digit session code.
 
 **Connecting as a Viewer:**
 Share the code with your peer. They simply need to visit your client URL and enter the code:
-* **Default Client:** [peerterm.dhananjaybalekar.in](https://peerterm.dhananjaybalekar.in/)
+* **Website &amp; Interactive Demo:** [peerterm.dhananjaybalekar.in](https://peerterm.dhananjaybalekar.in/)
+* **Default Web Viewer:** [peerterm.dhananjaybalekar.in/connect/](https://peerterm.dhananjaybalekar.in/connect/)
 * **Self-hosted Relay:** `http://localhost:8080`
 
 By default, the connection is instant. If you started the session with `--secure`, both sides will show a short security fingerprint. Compare it over a trusted channel, and authorize terminal access in the host CLI with `a <code>`.

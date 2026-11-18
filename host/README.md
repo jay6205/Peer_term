@@ -2,6 +2,8 @@
 
 Share your terminal instantly over WebRTC using a 6-digit code. Fully end-to-end encrypted. No configuration or accounts required.
 
+**Website:** [peerterm.dhananjaybalekar.in](https://peerterm.dhananjaybalekar.in/) · **Web Viewer:** [peerterm.dhananjaybalekar.in/connect/](https://peerterm.dhananjaybalekar.in/connect/) · **GitHub:** [jay6205/Peer_term](https://github.com/jay6205/Peer_term)
+
 ## Quick Start
 
 You don't even need to install it. Just run:
@@ -12,7 +14,7 @@ npx peer-term
 
 This will start a terminal sharing session and give you a 6-digit code.
 
-Share this code with your peer. They can view your terminal by going to https://peerterm.dhananjaybalekar.in/ and entering the code.
+Share this code with your peer. They can view your terminal by going to https://peerterm.dhananjaybalekar.in/connect/ and entering the code.
 
 ## Global Installation
 
