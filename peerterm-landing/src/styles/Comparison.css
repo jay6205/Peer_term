@@ -1,0 +1,90 @@
+/* ─── Comparison ──────────────────────────────────────── */
+.comparison-section {
+  padding: var(--section-padding);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.table-wrapper {
+  overflow-x: auto;
+  margin-top: 20px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.comparison-table th,
+.comparison-table td {
+  padding: 16px 24px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-table th {
+  background: var(--bg-card);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.comparison-table th.col-peerterm {
+  color: var(--accent);
+  background: rgba(0, 212, 170, 0.05);
+}
+
+.comparison-table td.col-peerterm {
+  background: rgba(0, 212, 170, 0.03);
+}
+
+.comparison-table td.feature-name {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.comparison-table tbody tr {
+  transition: background 0.2s ease;
+}
+
+.comparison-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.comparison-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.cell-yes {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.cell-no {
+  color: var(--red);
+  font-weight: 700;
+  font-size: 1.1rem;
+  opacity: 0.6;
+}
+
+.cell-partial {
+  color: var(--yellow);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+@media (max-width: 600px) {
+  .comparison-table th,
+  .comparison-table td {
+    padding: 12px 14px;
+    font-size: 0.8rem;
+  }
+}
