@@ -64,6 +64,8 @@ export default function EncryptionLab() {
   const packetAnimRef = useRef(null);
 
   const [modeIndex, setModeIndex] = useState(0);
+  const modeIndexRef = useRef(0);
+  modeIndexRef.current = modeIndex;
   const [perspective, setPerspective] = useState('relay'); // 'host' | 'relay' | 'viewer'
   const [payload, setPayload] = useState('export PROD_TOKEN=pt_live_98f2a1c0');
 
@@ -136,7 +138,7 @@ export default function EncryptionLab() {
       const stops = getStops();
       drag.refresh();
       animate(knob, {
-        x: stops[modeIndex],
+        x: stops[modeIndexRef.current],
         duration: 200,
         ease: 'outQuad',
       });

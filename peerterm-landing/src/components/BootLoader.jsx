@@ -5,11 +5,15 @@ import '../styles/BootLoader.css';
 export default function BootLoader({ onCurtainStart, onComplete }) {
   const rootRef = useRef(null);
   const doneRef = useRef(false);
+  const onCurtainStartRef = useRef(onCurtainStart);
+  const onCompleteRef = useRef(onComplete);
+  onCurtainStartRef.current = onCurtainStart;
+  onCompleteRef.current = onComplete;
 
   const finish = () => {
     if (doneRef.current) return;
     doneRef.current = true;
-    onComplete?.();
+    onCompleteRef.current?.();
   };
 
   useEffect(() => {
@@ -18,7 +22,11 @@ export default function BootLoader({ onCurtainStart, onComplete }) {
 
       const tl = createTimeline({
         defaults: { ease: 'outExpo' },
-        onComplete: finish,
+        onComplete: () => {
+          if (doneRef.current) return;
+          doneRef.current = true;
+          onCompleteRef.current?.();
+        },
       });
 
       tl.add(hexPaths, {
@@ -52,7 +60,7 @@ export default function BootLoader({ onCurtainStart, onComplete }) {
           duration: 260,
           ease: 'inQuad',
         }, 880)
-        .call(() => onCurtainStart?.(), 940)
+        .call(() => onCurtainStartRef.current?.(), 940)
         .add('.boot-curtain-top', {
           y: ['0%', '-100%'],
           duration: 460,
