@@ -10,16 +10,45 @@ import FAQ from './components/FAQ';
 import CTA from './components/CTA';
 import Footer from './components/Footer';
 
+const BOT_UA_PATTERN =
+  /bot|crawl|spider|lighthouse|pagespeed|chrome-lighthouse|headless|prerender|slurp|bingpreview|facebookexternalhit|twitterbot|discordbot|slackbot|whatsapp/i;
+
+function shouldSkipBootLoader() {
+  if (typeof window === 'undefined') return true;
+  if (window.navigator?.webdriver) return true;
+  if (BOT_UA_PATTERN.test(window.navigator?.userAgent || '')) return true;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return true;
+  try {
+    if (window.sessionStorage?.getItem('peerterm_booted') === '1') return true;
+  } catch {
+    // Ignore storage restrictions
+  }
+  return false;
+}
+
 export default function App() {
-  const [heroReady, setHeroReady] = useState(false);
-  const [overlayMounted, setOverlayMounted] = useState(true);
+  const [skipInitial] = useState(() => shouldSkipBootLoader());
+  const [heroReady, setHeroReady] = useState(skipInitial);
+  const [overlayMounted, setOverlayMounted] = useState(!skipInitial);
+
+  const markBooted = () => {
+    try {
+      window.sessionStorage?.setItem('peerterm_booted', '1');
+    } catch {
+      // Ignore storage restrictions
+    }
+  };
 
   return (
     <div className="app-shell">
       {overlayMounted && (
         <BootLoader
-          onCurtainStart={() => setHeroReady(true)}
+          onCurtainStart={() => {
+            markBooted();
+            setHeroReady(true);
+          }}
           onComplete={() => {
+            markBooted();
             setHeroReady(true);
             setOverlayMounted(false);
           }}

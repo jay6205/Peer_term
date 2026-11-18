@@ -118,6 +118,20 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <main style="max-width:860px;margin:0 auto;padding:48px 24px;font-family:system-ui,sans-serif;color:#f1f3f5;background:#08090b;line-height:1.6;">
+        <h1>PeerTerm — Share Your Live Terminal Across Any Browser (End-to-End Encrypted)</h1>
+        <p>Run <code>npx peer-term</code> to generate a 6-digit code. Your teammate opens <a href="https://peerterm.dhananjaybalekar.in/connect/" style="color:#34d399;">peerterm.dhananjaybalekar.in/connect/</a> in any browser and connects over an end-to-end encrypted WebRTC DataChannel—no signups, no SSH keys, no port forwarding, and zero viewer installation.</p>
+        <h2>Core Capabilities</h2>
+        <ul>
+          <li><strong>Client-Side AES-256-GCM + ECDH P-256:</strong> Keys are derived via the Web Crypto API; the relay server only forwards opaque binary ciphertext.</li>
+          <li><strong>Direct WebRTC P2P + WSS :443 Fallback:</strong> Sub-10ms LAN latency with automatic failover behind corporate firewalls and strict NATs.</li>
+          <li><strong>100MB Encrypted File Transfers:</strong> Drag-and-drop chunked uploads directly into the host directory.</li>
+          <li><strong>Live Read-Only Toggle &amp; User-Space PTY:</strong> Switch between interactive and view-only on the fly without sudo or root privileges on macOS, Linux, or Windows.</li>
+        </ul>
+        <p><a href="https://peerterm.dhananjaybalekar.in/connect/" style="color:#34d399;">Open PeerTerm Web Viewer</a> · <a href="https://github.com/jay6205/Peer_term" style="color:#34d399;">View Source on GitHub</a></p>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
