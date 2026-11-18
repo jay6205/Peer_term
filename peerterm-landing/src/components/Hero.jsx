@@ -373,7 +373,7 @@ export default function Hero({ booted }) {
             </p>
 
             <div className="hero-actions hero-fade">
-              <a href="https://peerterm.dhananjaybalekar.in" className="btn-signal">
+              <a href="https://peerterm.dhananjaybalekar.in/connect/" className="btn-signal">
                 <span>Open Web Viewer</span>
                 <ArrowUpRight size={15} />
               </a>
@@ -518,7 +518,7 @@ export default function Hero({ booted }) {
                 </div>
               </div>
               <div className="viewer-subbar">
-                <span>https://peerterm.dhananjaybalekar.in/?code=847291</span>
+                <span>https://peerterm.dhananjaybalekar.in/connect/?code=847291</span>
                 <span className={`mode-pill ${readOnly ? 'mode-pill--ro' : ''}`}>
                   {readOnly ? 'VIEW ONLY' : 'RW LIVE'}
                 </span>

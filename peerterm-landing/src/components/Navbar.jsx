@@ -140,7 +140,7 @@ export default function Navbar({ booted }) {
           </a>
           <a
             ref={magneticBtnRef}
-            href="https://peerterm.dhananjaybalekar.in"
+            href="https://peerterm.dhananjaybalekar.in/connect/"
             className="nav-launch"
           >
             <span>Launch</span>

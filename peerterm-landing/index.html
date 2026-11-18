@@ -1,14 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-5GV9ENEL65"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-5GV9ENEL65');
+    </script>
+
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <!-- Primary Meta Tags -->
-    <title>PeerTerm - Instant P2P Terminal Sharing (End-to-End Encrypted)</title>
+    <title>PeerTerm — Instant P2P Terminal Sharing (End-to-End Encrypted)</title>
     <meta name="title" content="PeerTerm – Instant P2P Terminal Sharing (End-to-End Encrypted)" />
     <meta name="description" content="Share your terminal instantly over WebRTC using a 6-digit code. End-to-end encrypted with AES-256-GCM. No signups, no port forwarding, no client install." />
     <meta name="keywords" content="terminal sharing, webrtc terminal, pair programming, remote debugging, tmate alternative, e2ee terminal, cli share, devops tools" />
+    <meta name="author" content="Dhananjay Balekar" />
+    <link rel="canonical" href="https://peerterm.dhananjaybalekar.in/" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
     <!-- Fonts -->
@@ -24,12 +35,83 @@
     <meta property="og:image" content="https://peerterm.dhananjaybalekar.in/og-preview.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="PeerTerm - Instant P2P Terminal Sharing" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://peerterm.dhananjaybalekar.in/" />
     <meta name="twitter:title" content="PeerTerm – Instant P2P Terminal Sharing" />
     <meta name="twitter:description" content="Share your terminal instantly over WebRTC using a 6-digit code. Zero installation, end-to-end encrypted." />
     <meta name="twitter:image" content="https://peerterm.dhananjaybalekar.in/og-preview.png" />
+
+    <!-- Schema.org SoftwareApplication Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "PeerTerm",
+      "headline": "Instant P2P Terminal Sharing",
+      "operatingSystem": "macOS, Linux, Windows",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "Terminal Multiplexer & Collaboration Tool",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "description": "Share your terminal instantly over WebRTC using a 6-digit code. End-to-end encrypted with AES-256-GCM and ECDH P-256. Zero installation for viewers.",
+      "url": "https://peerterm.dhananjaybalekar.in/",
+      "softwareVersion": "1.0.0",
+      "license": "https://opensource.org/licenses/MIT",
+      "author": {
+        "@type": "Person",
+        "name": "Dhananjay Balekar",
+        "url": "https://dhananjaybalekar.in"
+      }
+    }
+    </script>
+
+    <!-- Schema.org FAQPage Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Can the relay server see my terminal output or passwords?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. PeerTerm performs ephemeral ECDH P-256 key exchange via the browser Web Crypto API and encrypts every frame locally with AES-256-GCM and unique 12-byte IVs. The relay only ever forwards opaque binary blobs and never possesses decryption keys."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How does PeerTerm work behind strict corporate firewalls?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "PeerTerm first negotiates a direct peer-to-peer WebRTC DataChannel via STUN. If symmetric NAT, VPNs, or enterprise firewalls block UDP, it automatically falls back to an end-to-end encrypted WebSocket relay over standard HTTPS/WSS (port 443)."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does PeerTerm require root or sudo privileges?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Never. Both the host CLI (npx peer-term) and the browser viewer operate strictly in user space inside your current shell permissions."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How is PeerTerm different from tmate?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "tmate requires viewers to have an SSH client configured and terminates SSH sessions at its relay servers. PeerTerm works in any browser with zero setup, enforces true client-side E2EE, uses direct WebRTC P2P when available, and adds 100MB encrypted file uploads plus live read-only toggling."
+          }
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

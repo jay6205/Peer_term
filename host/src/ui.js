@@ -50,7 +50,7 @@ export function printBanner() {
  */
 export async function printSessionBox({ code, expiry, rejoinWindow, mode, shell, startPath, shareUrl }) {
   const spacedCode = code.split('').join(' ');
-  const url = shareUrl || 'https://peerterm.dhananjaybalekar.in';
+  const url = shareUrl || 'https://peerterm.dhananjaybalekar.in/connect/';
   const joinUrl = `${url}?code=${code}`;
 
   // Truncate long shell paths to keep box readable

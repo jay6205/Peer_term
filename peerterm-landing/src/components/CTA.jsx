@@ -137,7 +137,7 @@ export default function CTA() {
             <div className="cta-buttons">
               <a
                 ref={magneticRef}
-                href="https://peerterm.dhananjaybalekar.in"
+                href="https://peerterm.dhananjaybalekar.in/connect/"
                 className="btn-signal"
               >
                 <span>Open PeerTerm Viewer</span>

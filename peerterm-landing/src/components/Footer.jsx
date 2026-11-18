@@ -32,7 +32,7 @@ export default function Footer() {
         </div>
 
         <div className="footer-links ft-reveal">
-          <a href="https://peerterm.dhananjaybalekar.in">Web App</a>
+          <a href="https://peerterm.dhananjaybalekar.in/connect/">Web App</a>
           <a href="https://github.com/jay6205/Peer_term" target="_blank" rel="noopener noreferrer">
             GitHub
           </a>

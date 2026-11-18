@@ -61,7 +61,7 @@ const INITIAL_MODULES = [
     summary: 'No SSH client, no public keys, no accounts. Viewers open a URL on desktop, iPad, or phone.',
     detail:
       'Built on xterm.js with full 256-color ANSI support, dynamic resize fitting, floating copy toolbar, and dedicated mobile key controls (Tab, font scale, virtual keyboard trigger).',
-    cliFlag: 'peerterm.dhananjaybalekar.in/?code=847291',
+    cliFlag: 'peerterm.dhananjaybalekar.in/connect/?code=847291',
   },
   {
     id: 'readonly',
