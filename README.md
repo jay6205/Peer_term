@@ -29,6 +29,7 @@
 * **Live Permission Toggling** – Dynamically switch any active session between **Read-Only** and **Interactive** modes on the fly (`r <code>`) without restarting the PTY or dropping the connection.
 * **File Uploads** – Clients can securely drag-and-drop files (up to 100MB) to upload them directly to the host's `~/peerterm-uploads/` directory. All transfers are end-to-end encrypted and work over both WebRTC and relay connections.
 * **Resilient Connections** – Both host and client get a 2-minute rejoin window if their IP changes or connection drops mid-session. The PTY state is fully preserved — no session restart needed.
+* **Instant QR Code Join** – Generates an ASCII terminal QR code on session creation for frictionless, one-tap scanning from smartphones or tablets without typing the code.
 
 ---
 
@@ -112,13 +113,67 @@ Even WebRTC signaling metadata (ICE candidates, SDP offers/answers) is encrypted
 
 ---
 
-## Deployment 
+## Deployment & Self-Hosting
 
-Want to run your own infrastructure? PeerTerm consists of a lightweight WebSocket relay server and a static HTML client.
+PeerTerm is completely self-hostable with zero external cloud dependencies. You can run the signaling relay and client locally on your machine or deploy them to private infrastructure.
 
-### 1. Deploy the Relay Server
+### Local Hosting (Fastest Setup)
 
-The relay server is a simple Node.js app that can be deployed anywhere that supports WebSockets.
+The repository is configured as an npm workspace, and the relay server includes a built-in static HTTP server that automatically serves the `client/` web terminal.
+
+#### 1. Start the Relay & Web Client
+From the repository root:
+```bash
+npm install
+npm run relay
+```
+*(Or `cd relay && npm install && npm start`)*
+
+* **Relay WebSocket:** `ws://localhost:8080`
+* **Web Terminal UI:** `http://localhost:8080` (served automatically)
+
+#### 2. Run the Host CLI
+In a second terminal window, run the host CLI pointing to your local relay:
+```bash
+# From repository root:
+npm run host -- --relay ws://localhost:8080
+
+# Or using npx:
+npx peer-term --relay ws://localhost:8080
+
+# Or from the host/ directory:
+cd host
+node bin/peer-term.js --relay ws://localhost:8080
+```
+
+#### 3. Connect
+Open `http://localhost:8080` in any web browser and enter the generated 6-digit session code.
+
+#### Relay Configuration (.env)
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `PORT` | HTTP & WebSocket server port | `8080` |
+| `CLIENT_DIR` | Filesystem path to client static assets | `../client` |
+| `MAX_SESSIONS` | Maximum concurrent active sessions | `500` |
+| `MAX_SESSIONS_PER_IP` | Maximum concurrent sessions per host IP address | `20` |
+| `TRUSTED_PROXIES` | Comma-separated list of proxy IPs/CIDRs for `X-Forwarded-For` | Loopback & RFC1918 |
+
+---
+
+### Cloud Deployment
+
+Want to host the infrastructure in the cloud? The relay server is a lightweight Node.js app that can be deployed anywhere that supports WebSockets.
+
+<details>
+<summary><strong>Docker</strong></summary>
+
+```bash
+docker build -f relay/Dockerfile -t peerterm-relay .
+docker run -p 8080:8080 peerterm-relay
+```
+
+</details>
 
 <details>
 <summary><strong>Railway / Render</strong></summary>
@@ -128,16 +183,6 @@ The relay server is a simple Node.js app that can be deployed anywhere that supp
 3. Set the build command: `npm ci --only=production`.
 4. Set the start command: `node server.js`.
 5. Expose the `PORT` environment variable (e.g., `8080`).
-
-</details>
-
-<details>
-<summary><strong>Docker</strong></summary>
-
-```bash
-docker build -f relay/Dockerfile -t peerterm-relay .
-docker run -p 8080:8080 peerterm-relay
-```
 
 </details>
 
@@ -166,13 +211,11 @@ This repository includes a `deploy.yml` workflow for automated EC2 deployments.
 
 </details>
 
-### 2. Host the Client
+### Standalone Web Client Hosting
 
-The client is a single `index.html` file located in the `client/` directory.
+While the relay serves the client automatically, you can also host the `client/` directory as a standalone static site on Vercel, Netlify, or GitHub Pages.
 
-* **Render / Vercel / Netlify:** Import the repository and set the publish/root directory to `client/`. Zero build configuration is required.
-
-Once deployed, viewers can connect using your custom URL:
+Viewers can then connect by specifying your custom relay URL in the query string:
 `https://your-client-domain.com/?relay=wss://your-relay.com`
 
 ---
@@ -190,14 +233,36 @@ These modules require C++ build tools during `npm install`:
 
 ## Project Structure
 
+This repository contains the three components required to run and self-host PeerTerm:
+
 ```text
 peer-term/
-├── relay/                 # WebSocket relay & signaling server
-├── host/                  # Node.js CLI host agent
-│   ├── src/               # Encryption, WebRTC, PTY logic
-│   └── bin/               # CLI entry point
-├── client/                # Single-file browser viewer
-└── .github/workflows/     # CI/CD and release actions
+├── relay/                     # Signaling & blind encrypted packet forwarder
+│   ├── server.js              # WebSocket signaling, 6-digit pairing & built-in HTTP server for client UI
+│   ├── Dockerfile             # Container configuration for Docker / VPS / Fly.io
+│   ├── package.json           # Minimal dependencies (ws, dotenv)
+│   └── .env.example           # Configurable PORT, rate limits, trusted proxies
+│
+├── client/                    # Zero-install browser terminal viewer
+│   ├── index.html             # Terminal UI container (xterm.js)
+│   ├── app.js                 # Web Crypto (ECDH + AES-256-GCM), WebRTC DataChannel & socket handler
+│   └── styles.css             # Dark terminal theme & drag-and-drop file upload overlay
+│
+├── host/                      # Node.js CLI host agent (shares local terminal)
+│   ├── bin/
+│   │   └── peer-term.js       # CLI executable entry point (`npx peer-term`)
+│   ├── src/
+│   │   ├── index.js           # Session coordinator, PTY lifecycle & relay socket client
+│   │   ├── cli.js             # Flag parsing & interactive REPL commands (`n`, `l`, `r`, `a`, `k`, `q`)
+│   │   ├── crypto.js          # Ephemeral ECDH P-256 key exchange & AES-256-GCM encryption
+│   │   ├── webrtc.js          # Direct local P2P WebRTC DataChannel management (node-datachannel)
+│   │   ├── file-transfer.js   # Encrypted drag-and-drop file upload receiver (~/peerterm-uploads/)
+│   │   └── config.js          # Relay connection defaults & timeout limits
+│   └── package.json           # Native bindings (node-pty, node-datachannel)
+│
+└── .github/workflows/         # CI/CD and release automation
 ```
+
+> **Note:** The marketing website (`peerterm-landing/`) is intentionally omitted above as it is only for the public landing page and is not needed for running or self-hosting PeerTerm.
 
 ---

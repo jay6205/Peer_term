@@ -41,6 +41,7 @@ peer-term --readonly                   # view-only session
 peer-term --secure                     # require fingerprint verification
 peer-term --expiry 10m                 # custom expiry time
 peer-term --rejoin 5m                  # custom reconnection window
+peer-term --relay ws://localhost:8080  # connect to local self-hosted relay
 peer-term --relay wss://custom         # use a custom relay server
 peer-term --verbose                    # enable debug logging
 ```
