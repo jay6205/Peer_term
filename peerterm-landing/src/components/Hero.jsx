@@ -501,7 +501,6 @@ export default function Hero({ booted }) {
                   <span>HOST CLI · macOS / zsh</span>
                 </div>
                 <div className="win-meta">
-                  <span className="win-drag-hint">DRAG</span>
                   <GripHorizontal size={14} />
                 </div>
               </div>
