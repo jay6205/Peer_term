@@ -96,16 +96,7 @@
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.nav-telemetry {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--ink-dim);
-  letter-spacing: 0.08em;
-  padding-right: 6px;
-  border-right: 1px solid var(--line);
+  gap: 12px;
 }
 
 .nav-gh {
@@ -156,11 +147,6 @@
   cursor: pointer;
 }
 
-@media (max-width: 1020px) {
-  .nav-telemetry {
-    display: none;
-  }
-}
 
 @media (max-width: 860px) {
   .nav-inner {

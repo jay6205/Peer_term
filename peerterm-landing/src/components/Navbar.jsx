@@ -19,7 +19,6 @@ export default function Navbar({ booted }) {
   const magneticBtnRef = useRef(null);
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [scrollPct, setScrollPct] = useState(0);
 
   // Entrance animation synced with boot completion
   useEffect(() => {
@@ -46,9 +45,6 @@ export default function Navbar({ booted }) {
         enter: 'top top',
         leave: 'bottom bottom',
         sync: 0.35,
-        onUpdate: (self) => {
-          setScrollPct(Math.round(self.progress * 100));
-        },
       }),
     });
 
@@ -139,9 +135,6 @@ export default function Navbar({ booted }) {
         </nav>
 
         <div className="nav-right nav-stagger">
-          <span className="nav-telemetry" aria-hidden="true">
-            SCROLL {scrollPct.toString().padStart(3, '0')}%
-          </span>
           <a
             href="https://github.com/jay6205/Peer_term"
             target="_blank"
