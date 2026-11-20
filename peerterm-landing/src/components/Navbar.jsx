@@ -93,7 +93,11 @@ export default function Navbar({ booted }) {
   const scrollTo = (id) => {
     setMenuOpen(false);
     trackLandingEvent('nav_click', { target_section: id });
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+    if (window.__lenis) {
+      window.__lenis.scrollTo(`#${id}`, { offset: -30 });
+    } else {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   return (
@@ -105,7 +109,13 @@ export default function Navbar({ booted }) {
       <div className="nav-inner">
         <button
           className="nav-brand nav-stagger"
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          onClick={() => {
+            if (window.__lenis) {
+              window.__lenis.scrollTo(0);
+            } else {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
         >
           <svg viewBox="0 0 28 28" width="22" height="22" fill="none" aria-hidden="true">
             <polygon points="14,2 25,8 25,20 14,26 3,20 3,8" stroke="var(--signal)" strokeWidth="1.8" />

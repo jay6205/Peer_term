@@ -52,6 +52,15 @@ html {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Ensure Lenis smooth scroll controls easing without CSS fight */
+html.lenis {
+  scroll-behavior: auto !important;
+}
+
+html.lenis body {
+  height: auto;
+}
+
 body {
   background: var(--bg);
   color: var(--ink);
