@@ -1,0 +1,81 @@
+/* ─── Minimalist PeerTerm Custom Cursor ─────────────────────────────── */
+
+@media (hover: hover) and (pointer: fine) {
+  body.has-custom-cursor,
+  body.has-custom-cursor * {
+    cursor: none !important;
+  }
+}
+
+.custom-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 999999;
+  opacity: 0;
+  user-select: none;
+  transition: opacity 0.22s ease-out;
+}
+
+.custom-cursor.is-visible {
+  opacity: 1;
+}
+
+/* Position wrappers: handle ONLY translate3d translation (never touched by Anime.js) */
+.cursor-dot-wrap,
+.cursor-ring-wrap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* Sharp inner dot: handles ONLY scale & color (animated via Anime.js) */
+.cursor-dot {
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: var(--signal, #34d399);
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.85);
+  pointer-events: none;
+  will-change: transform;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Smooth trailing ring: handles ONLY scale, border & background (animated via Anime.js) */
+.cursor-ring {
+  width: 26px;
+  height: 26px;
+  margin-left: -13px;
+  margin-top: -13px;
+  border-radius: 50%;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: transparent;
+  pointer-events: none;
+  will-change: transform;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+/* Drag accent variant */
+.custom-cursor.cursor--drag .cursor-dot {
+  background: #fbbf24;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.85);
+}
+
+.custom-cursor.cursor--drag .cursor-ring {
+  border-color: rgba(245, 158, 11, 0.6);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+/* Hide on touch devices */
+@media (pointer: coarse), (hover: none) {
+  .custom-cursor {
+    display: none !important;
+  }
+}

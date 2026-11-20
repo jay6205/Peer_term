@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import BootLoader from './components/BootLoader';
+import CustomCursor from './components/CustomCursor';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import EncryptionLab from './components/EncryptionLab';
@@ -41,6 +42,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <CustomCursor />
       {overlayMounted && (
         <BootLoader
           onCurtainStart={() => {
