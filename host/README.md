@@ -2,7 +2,8 @@
 
 Share your terminal instantly over WebRTC using a 6-digit code. Fully end-to-end encrypted. No configuration or accounts required.
 
-**Website:** [peerterm.dhananjaybalekar.in](https://peerterm.dhananjaybalekar.in/) · **Web Viewer:** [peerterm.dhananjaybalekar.in/connect/](https://peerterm.dhananjaybalekar.in/connect/) · **GitHub:** [jay6205/Peer_term](https://github.com/jay6205/Peer_term)
+**Website:** [peerterm.dhananjaybalekar.in](https://peerterm.dhananjaybalekar.in/) ·
+**Web Viewer:** [peerterm.dhananjaybalekar.in/connect/](https://peerterm.dhananjaybalekar.in/connect/) · **GitHub:** [jay6205/Peer_term](https://github.com/jay6205/Peer_term)
 
 ## Quick Start
 
