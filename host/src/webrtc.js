@@ -37,6 +37,10 @@ export class HostWebRTC {
     this._onCloseCb = null;
     this._onMessageCb = null;
 
+    // ICE candidate queuing — buffer until offer is sent
+    this._offerSent = false;
+    this._pendingCandidates = [];
+
     // Timeout handles
     this._iceTimer = null;
     this._dcTimer = null;
@@ -59,12 +63,18 @@ export class HostWebRTC {
       });
 
       // ─── ICE candidate handling ──────────────────────────────────────
+      // Buffer candidates until the offer has been sent to avoid the race
+      // where ICE arrives at the client before peerConnection exists.
       this._pc.onLocalCandidate((candidate, mid) => {
         if (this._closed) return;
 
-        // Parse candidate type
         const candidateStr = candidate;
         this._checkLocalCandidate(candidateStr);
+
+        if (!this._offerSent) {
+          this._pendingCandidates.push({ candidate: candidateStr, mid });
+          return;
+        }
 
         this._sendSignal({
           type: 'signal',
@@ -123,6 +133,16 @@ export class HostWebRTC {
             type: 'signal',
             payload: { kind: 'offer', sdp: desc.sdp, sdpType: desc.type },
           });
+
+          // Flush any ICE candidates that were buffered before the offer was sent
+          this._offerSent = true;
+          for (const c of this._pendingCandidates) {
+            this._sendSignal({
+              type: 'signal',
+              payload: { kind: 'ice', candidate: c.candidate, mid: c.mid },
+            });
+          }
+          this._pendingCandidates = [];
         }
       }, 100);
 

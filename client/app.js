@@ -122,6 +122,7 @@
     let peerSameLAN = false;
     let iceTimer = null;
     let dcTimer = null;
+    let pendingIceCandidates = [];  // Queue ICE candidates arriving before the offer/peerConnection
 
     // File upload state
     const FILE_CHUNK_SIZE = 16 * 1024; // 16KB raw per chunk
@@ -1395,6 +1396,10 @@
                 sdpMLineIndex: 0,
               })).catch(() => {});
             } catch {}
+          } else if (payload.candidate) {
+            // peerConnection not ready yet — queue for when offer arrives
+            console.log('[WebRTC] ICE candidate arrived before offer — queuing');
+            pendingIceCandidates.push(payload);
           }
           break;
 
@@ -1410,8 +1415,15 @@
      */
     async function setupWebRTC(offerPayload) {
       try {
+        // Preserve ICE candidates queued before the offer arrived;
+        // cleanupWebRTC resets the queue, but these are for the NEW connection.
+        const savedCandidates = pendingIceCandidates;
+
         // Clean up any previous connection
         cleanupWebRTC();
+
+        // Restore — these will be flushed after setRemoteDescription
+        pendingIceCandidates = savedCandidates;
 
         console.log('[WebRTC] Setting up peer connection...');
         updateConnIndicator('negotiating');
@@ -1525,6 +1537,25 @@
           sdp: offerPayload.sdp,
         }));
 
+        // Flush any ICE candidates that arrived before the offer
+        if (pendingIceCandidates.length > 0) {
+          console.log(`[WebRTC] Flushing ${pendingIceCandidates.length} queued ICE candidate(s)`);
+          for (const ic of pendingIceCandidates) {
+            if (!peerSameLAN && isHostCandidate(ic.candidate)) {
+              peerSameLAN = true;
+              console.log('[WebRTC] Remote host-type ICE candidate found (queued)');
+            }
+            try {
+              peerConnection.addIceCandidate(new RTCIceCandidate({
+                candidate: ic.candidate,
+                sdpMid: ic.mid || '0',
+                sdpMLineIndex: 0,
+              })).catch(() => {});
+            } catch {}
+          }
+          pendingIceCandidates = [];
+        }
+
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
 
@@ -1575,6 +1606,7 @@
       useDataChannel = false;
       sameLAN = false;
       peerSameLAN = false;
+      pendingIceCandidates = [];
 
       if (dataChannel) {
         try { dataChannel.close(); } catch {}
