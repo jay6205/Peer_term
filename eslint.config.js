@@ -41,6 +41,7 @@ export default [
   {
     // Client files run in the browser
     files: ["client/**/*.js"],
+    ignores: ["client/tests/**"],
     languageOptions: {
       sourceType: "script",
       globals: {
@@ -119,6 +120,17 @@ export default [
         gtag: "readonly",
         Terminal: "readonly",
         FitAddon: "readonly",
+      },
+    },
+  },
+  {
+    // Test files run in Node.js as ES modules
+    files: ["**/tests/**/*.js"],
+    languageOptions: {
+      sourceType: "module",
+      globals: {
+        btoa: "readonly",
+        atob: "readonly",
       },
     },
   },
