@@ -1,6 +1,6 @@
 {
   "name": "peer-term",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "license": "MIT",
   "description": "Share your terminal instantly using a 6-digit code or QR code. Encrypted. No config.",
   "repository": {
@@ -55,7 +55,7 @@
     "peer-term": "./bin/peer-term.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "files": [
     "bin/",
