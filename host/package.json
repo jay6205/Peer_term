@@ -1,6 +1,6 @@
 {
   "name": "peer-term",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "license": "MIT",
   "description": "Share your terminal instantly using a 6-digit code or QR code. Encrypted. No config.",
   "repository": {
@@ -65,7 +65,7 @@
   "type": "module",
   "scripts": {
     "start": "node bin/peer-term.js",
-    "test": "node --test tests/**/*.test.js",
+    "test": "node --test",
     "build": "npx @yao-pkg/pkg . --compress GZip",
     "build:linux-x64": "npx @yao-pkg/pkg . --targets node18-linux-x64 --output dist/peer-term-linux-x64",
     "build:linux-arm64": "npx @yao-pkg/pkg . --targets node18-linux-arm64 --output dist/peer-term-linux-arm64",
