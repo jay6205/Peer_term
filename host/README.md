@@ -74,6 +74,16 @@ While running, you can manage sessions directly from the host CLI:
 | `q` | Quit all sessions and exit |
 
 
+## Testing
+
+Run the automated test suite locally:
+
+```bash
+npm test
+```
+
+Verifies ECDH P-256 key exchange, AES-256-GCM encryption, WebRTC candidate queuing, and CLI utility functions.
+
 ## Features
 
 - **No Config**: Works instantly. No port forwarding or firewall configuration needed.

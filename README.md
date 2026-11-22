@@ -6,9 +6,10 @@
   <br />
 
   [![Website](https://img.shields.io/badge/Website-peerterm.dhananjaybalekar.in-34d399)](https://peerterm.dhananjaybalekar.in/)
+  [![CI Test Suite](https://github.com/jay6205/Peer_term/actions/workflows/ci.yml/badge.svg)](https://github.com/jay6205/Peer_term/actions/workflows/ci.yml)
   [![npm version](https://img.shields.io/npm/v/peer-term?color=cb3837)](https://www.npmjs.com/package/peer-term)
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-  [![Node.js](https://img.shields.io/badge/Node.js-18+-success)](https://nodejs.org/)
+  [![Node.js](https://img.shields.io/badge/Node.js-20+-success)](https://nodejs.org/)
 
   <p>
     <a href="https://peerterm.dhananjaybalekar.in/"><strong>Explore Website &amp; Interactive Demo</strong></a>
@@ -217,6 +218,23 @@ While the relay serves the client automatically, you can also host the `client/`
 
 Viewers can then connect by specifying your custom relay URL in the query string:
 `https://your-client-domain.com/?relay=wss://your-relay.com`
+
+---
+
+## Testing & Quality Assurance
+
+PeerTerm includes an automated test suite executed on every commit and pull request via GitHub Actions:
+
+* **Cryptographic Invariants:** Verifies ephemeral ECDH P-256 key exchange, AES-256-GCM authenticated encryption round-trips, unique IV generation per message, SAS security fingerprinting, and rejection of tampered ciphertext.
+* **WebRTC Signaling Queuing:** Tests race-condition prevention by validating that host-side ICE candidates are held until the SDP offer is sent, and client-side candidates arriving before peer connection creation are safely queued and flushed in order.
+* **Relay & Client Helpers:** Tests trusted proxy CIDR subnet matching, rate limiter edge cases, 6-digit session code generation, and chunked base64 conversion for large payloads.
+* **Zero External Dependencies:** Built with Node's native `node:test` and `node:assert/strict` modules for sub-second execution (~200ms) without heavy test runner overhead.
+
+To run the full test suite locally:
+
+```bash
+npm test
+```
 
 ---
 
