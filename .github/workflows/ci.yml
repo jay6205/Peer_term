@@ -1,0 +1,75 @@
+name: CI Test Suite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node-version: [18, 20, 22]
+        include:
+          - os: windows-latest
+            node-version: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # ── Syntax Check ─────────────────────────────────────────────
+      - name: Syntax check JS files
+        run: |
+          node --check relay/server.js
+          node --check client/app.js
+          for f in host/bin/*.js host/src/*.js; do
+            node --check "$f"
+          done
+        shell: bash
+
+      # ── Install Dependencies ─────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          cd relay && npm install --omit=dev && cd ..
+          cd host && npm install --omit=dev && cd ..
+
+      # ── Automated Tests ──────────────────────────────────────────
+      - name: Run automated test suite
+        run: npm test
+
+  lint:
+    name: Lint & HTML Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install ESLint and HTMLHint
+        run: npm install --no-save eslint @eslint/js htmlhint
+
+      - name: Run ESLint
+        run: npx eslint relay/ host/ client/
+
+      - name: Validate client/index.html
+        run: npx htmlhint client/index.html

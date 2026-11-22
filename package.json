@@ -12,7 +12,8 @@
     "start": "npm run relay",
     "relay": "cd relay && npm start",
     "relay:dev": "cd relay && npm run dev",
-    "host": "cd host && npm start"
+    "host": "cd host && npm start",
+    "test": "node --test \"host/tests/**/*.test.js\" \"relay/tests/**/*.test.js\" \"client/tests/**/*.test.js\""
   },
   "author": "",
   "license": "MIT"

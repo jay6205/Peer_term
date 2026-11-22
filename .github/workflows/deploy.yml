@@ -76,6 +76,10 @@ jobs:
           npm install --omit=dev
           echo "✓ host/ dependencies OK"
 
+      # ── Automated Tests ─────────────────────────────────────────
+      - name: Run automated test suite
+        run: npm test
+
   # ════════════════════════════════════════════════════════════════
   # Deploy – only runs after validate passes
   # ════════════════════════════════════════════════════════════════
