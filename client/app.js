@@ -1269,7 +1269,7 @@
     function updateConnIndicator(state) {
       const states = {
         connecting:    '\u23F3 Connecting...',
-        negotiating:   '\u23F3 Establishing direct connection...',
+        negotiating:   'Establishing direct connection...',
         direct:        '\uD83D\uDFE2 Direct (Local)',
         relay:         '\uD83D\uDD34 Relay',
         reconnecting:  '\uD83D\uDFE1 Reconnecting...',
