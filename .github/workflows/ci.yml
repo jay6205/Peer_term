@@ -37,6 +37,7 @@ jobs:
       - name: Syntax check JS files
         run: |
           node --check relay/server.js
+          node --check relay/helpers.js
           node --check client/app.js
           for f in host/bin/*.js host/src/*.js; do
             node --check "$f"

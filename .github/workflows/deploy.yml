@@ -37,6 +37,7 @@ jobs:
         run: |
           echo "── Checking relay/ ──"
           node --check relay/server.js
+          node --check relay/helpers.js
 
           echo "── Checking host/ ──"
           for f in host/bin/*.js host/src/*.js; do
@@ -122,7 +123,7 @@ jobs:
         run: |
           rsync -avz \
             -e "ssh -i ~/.ssh/ec2_key $SSH_OPTS" \
-            relay/server.js relay/package.json \
+            relay/server.js relay/helpers.js relay/package.json \
             "${EC2_USER}@${EC2_HOST}:${RELAY_DIR}/"
 
       - name: Install dependencies and reload PM2

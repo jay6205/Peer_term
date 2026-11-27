@@ -18,6 +18,13 @@ import path from 'path';
 import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'url';
+import {
+  parsePositiveInt,
+  clampDuration,
+  generateSessionCode,
+  resolveTrustedProxies,
+  getClientIp,
+} from './helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,26 +50,9 @@ const MAX_SESSIONS_PER_IP = parsePositiveInt(process.env.MAX_SESSIONS_PER_IP, 20
 const BACKPRESSURE_THRESHOLD = 1.25 * 1024 * 1024;  // 1.25 MB — terminate slow peers
 
 // ─── Trusted Proxy Configuration ─────────────────────────────────────────────
-// Comma-separated list of trusted proxy IPs/CIDRs.  When the direct socket
-// connects from one of these addresses the server reads X-Forwarded-For;
-// otherwise it falls back to remoteAddress to prevent IP spoofing.
-const TRUSTED_PROXIES = (() => {
-  const defaults = [
-    '127.0.0.1', '::1', '::ffff:127.0.0.1',      // loopback
-    '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', // RFC 1918
-  ];
-  const env = process.env.TRUSTED_PROXIES;
-  if (typeof env === 'string' && env.trim()) {
-    return env.split(',').map(s => s.trim()).filter(Boolean);
-  }
-  return defaults;
-})();
+const TRUSTED_PROXIES = resolveTrustedProxies();
 
 // ─── Session Store ───────────────────────────────────────────────────────────
-function parsePositiveInt(value, fallback) {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
 
 // Optional GA4 Measurement Protocol tracking (enabled if GA_API_SECRET is set in environment)
 const GA_MEASUREMENT_ID = process.env.GA_MEASUREMENT_ID || 'G-5GV9ENEL65';
@@ -213,7 +203,7 @@ function generateCode() {
   let code;
   let attempts = 0;
   do {
-    code = String(crypto.randomInt(100000, 999999));
+    code = generateSessionCode();
     attempts++;
     if (attempts > 100) {
       throw new Error('Could not generate a unique code after 100 attempts');
@@ -306,82 +296,6 @@ function recordCodeFailedAttempt(code) {
  */
 function resetCodeRateLimit(code) {
   codeLimits.delete(code);
-}
-
-// ─── Trusted Proxy IP Matching ───────────────────────────────────────────────
-
-/**
- * Parse a CIDR string into a { subnet, prefixLen } for IPv4.
- * Returns null for non-CIDR plain IPs.
- */
-function parseCIDR(cidr) {
-  const match = cidr.match(/^(\d+\.\d+\.\d+\.\d+)\/(\d+)$/);
-  if (!match) return null;
-  const parts = match[1].split('.').map(Number);
-  const prefixLen = Number(match[2]);
-  if (parts.some(p => p < 0 || p > 255) || prefixLen < 0 || prefixLen > 32) return null;
-  const subnet = (parts[0] << 24 | parts[1] << 16 | parts[2] << 8 | parts[3]) >>> 0;
-  return { subnet, prefixLen };
-}
-
-/**
- * Convert an IPv4 string to a 32-bit unsigned integer.
- * Handles ::ffff: mapped addresses.
- */
-function ipv4ToInt(ip) {
-  const mapped = ip.replace(/^::ffff:/, '');
-  const parts = mapped.split('.').map(Number);
-  if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) return null;
-  return (parts[0] << 24 | parts[1] << 16 | parts[2] << 8 | parts[3]) >>> 0;
-}
-
-/**
- * Check whether `ip` matches any entry in the TRUSTED_PROXIES list.
- * Supports exact match and IPv4 CIDR notation.
- */
-function isTrustedProxy(ip) {
-  if (!ip) return false;
-  const normalised = ip.replace(/^::ffff:/, '');
-  for (const entry of TRUSTED_PROXIES) {
-    // Exact match (handles IPv6 loopback and plain addresses)
-    if (entry === ip || entry === normalised) return true;
-
-    // CIDR match (IPv4 only)
-    const cidr = parseCIDR(entry);
-    if (cidr) {
-      const ipInt = ipv4ToInt(ip);
-      if (ipInt !== null) {
-        const mask = cidr.prefixLen === 0 ? 0 : (~0 << (32 - cidr.prefixLen)) >>> 0;
-        if ((ipInt & mask) === (cidr.subnet & mask)) return true;
-      }
-    }
-  }
-  return false;
-}
-
-/**
- * Extract the real client IP from a request.
- * Only trusts X-Forwarded-For when the direct connection comes from a
- * recognised proxy address; otherwise returns remoteAddress to prevent
- * IP spoofing from untrusted sources.
- */
-function getClientIp(req) {
-  const directIp = req.socket.remoteAddress || 'unknown';
-
-  if (isTrustedProxy(directIp)) {
-    const forwardedFor = req.headers['x-forwarded-for'];
-    if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
-      // Take the left-most (original client) address
-      return forwardedFor.split(',')[0].trim();
-    }
-  }
-
-  return directIp;
-}
-
-function clampDuration(value, defaultMs, maxMs) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return defaultMs;
-  return Math.min(value, maxMs);
 }
 
 function isHostRegisterLimited(ip) {
@@ -785,7 +699,7 @@ const wss = new WebSocketServer({
 // Pass `req` to get client IP during upgrade handshake
 wss.on('connection', (ws, req) => {
   // Extract client IP for rate limiting
-  const clientIp = getClientIp(req);
+  const clientIp = getClientIp(req, TRUSTED_PROXIES);
   ws._peerTermIp = clientIp;
   ws.isAlive = true;
 

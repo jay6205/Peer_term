@@ -158,7 +158,7 @@ Open `http://localhost:8080` in any web browser and enter the generated 6-digit 
 | `CLIENT_DIR` | Filesystem path to client static assets | `../client` |
 | `MAX_SESSIONS` | Maximum concurrent active sessions | `500` |
 | `MAX_SESSIONS_PER_IP` | Maximum concurrent sessions per host IP address | `20` |
-| `TRUSTED_PROXIES` | Comma-separated list of proxy IPs/CIDRs for `X-Forwarded-For` | Loopback & RFC1918 |
+| `TRUSTED_PROXIES` | Comma-separated list of proxy IPs/CIDRs for `X-Forwarded-For` | Loopback only (dev); none (production) |
 
 ---
 

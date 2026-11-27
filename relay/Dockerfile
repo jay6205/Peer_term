@@ -40,7 +40,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package.json ./package.json
 
 # Copy relay server code
-COPY relay/server.js ./
+COPY relay/server.js relay/helpers.js ./
 
 # Copy client HTML so the relay can serve the UI
 # Server looks for: path.join(__dirname, '..', 'client', 'index.html')
